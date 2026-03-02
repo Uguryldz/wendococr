@@ -20,4 +20,4 @@ ALLOWED_PDF_TYPE = "application/pdf"
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 
 # Desteklenen mode değerleri
-EXTRACT_MODES = {"auto", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets", "pdftxtimage"}
+EXTRACT_MODES = {"auto", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets", "pdftxtimage", "pdfimagetable"}

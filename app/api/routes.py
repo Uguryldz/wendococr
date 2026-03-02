@@ -161,3 +161,17 @@ async def v1_pdftxtimage(file: UploadFile = File(..., description=FILE_UPLOAD_DE
     **Sadece PDF** kabul edilir.
     """
     return await _process_upload(file, "pdftxtimage")
+
+
+@router.post(
+    "/v1/pdfimagetable",
+    response_model=ExtractResponse,
+    tags=["Belge çıkarımı"],
+    summary="Tablo yapısı korumalı OCR",
+)
+async def v1_pdfimagetable(file: UploadFile = File(..., description=FILE_UPLOAD_DESC)):
+    """
+    Tablo yapısını koruyarak metin + gömülü resim OCR. PDF sayfa düzeni bozulmaz; tablolar ve hücreler korunur.
+    **Sadece PDF** kabul edilir.
+    """
+    return await _process_upload(file, "pdfimagetable")

@@ -83,6 +83,10 @@ def process_document(
         from app.engines.ocr_txtimage import extract as ocr_txtimage_extract
         raw = ocr_txtimage_extract(path, page_numbers=None)
         return raw, "pdftxtimage"
+    if mode == "pdfimagetable":
+        from app.engines.ocr_imagetable import extract as ocr_imagetable_extract
+        raw = ocr_imagetable_extract(path, page_numbers=None)
+        return raw, "pdfimagetable"
 
     # --- AUTO ---
     if content_type and content_type.lower() in ALLOWED_IMAGE_TYPES:
