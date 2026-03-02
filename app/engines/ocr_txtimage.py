@@ -33,6 +33,23 @@ def _box_to_bbox(box: list) -> list[float]:
     return [float(min(xs)), float(min(ys)), float(max(xs)), float(max(ys))]
 
 
+def _bbox_overlap_ratio(inner: list[float], outer: list[float]) -> float:
+    """inner bbox'ın alanının ne kadarı outer ile kesişiyor (0..1)."""
+    if len(inner) < 4 or len(outer) < 4:
+        return 0.0
+    xi = max(inner[0], outer[0])
+    yi = max(inner[1], outer[1])
+    xj = min(inner[2], outer[2])
+    yj = min(inner[3], outer[3])
+    if xj <= xi or yj <= yi:
+        return 0.0
+    area_inner = (inner[2] - inner[0]) * (inner[3] - inner[1])
+    if area_inner <= 0:
+        return 0.0
+    overlap = (xj - xi) * (yj - yi)
+    return overlap / area_inner
+
+
 def _process_page(page, ocr_engine) -> tuple[list[dict], float, float]:
     """
     Tek sayfa: native metin + resim OCR, spatial sıralı satır listesi.
@@ -56,7 +73,7 @@ def _process_page(page, ocr_engine) -> tuple[list[dict], float, float]:
                     "source": "native",
                 })
 
-    # 2. Resim blokları → OCR
+    # 2. Resim blokları → OCR (resim başına tek blok; iç içe geçmesin)
     image_list = page.get_image_info(hashes=False)
     for img_info in image_list:
         bbox = img_info["bbox"]
@@ -72,14 +89,34 @@ def _process_page(page, ocr_engine) -> tuple[list[dict], float, float]:
         processed = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
         ocr_result, _ = ocr_engine(processed)
         if ocr_result:
-            for item in ocr_result:
-                res_box, res_text, res_conf = item
-                page_lines.append({
-                    "text": res_text.strip(),
-                    "confidence": float(res_conf),
-                    "box": [[p[0] / zoom + bbox[0], p[1] / zoom + bbox[1]] for p in res_box],
-                    "source": "ocr_image",
-                })
+            # Resimdeki tüm metni tek satırda topla; konum = resim bbox (iç içe girmez)
+            all_text = " ".join(item[1].strip() for item in ocr_result if item[1]).strip()
+            if not all_text:
+                continue
+            img_box = [
+                [bbox[0], bbox[1]], [bbox[2], bbox[1]],
+                [bbox[2], bbox[3]], [bbox[0], bbox[3]],
+            ]
+            img_bbox_flat = [bbox[0], bbox[1], bbox[2], bbox[3]]
+            # Aynı metin zaten native satırda varsa (örtüşen bbox) tekrar ekleme
+            is_duplicate = False
+            for line in page_lines:
+                if line.get("source") != "native":
+                    continue
+                lb = _box_to_bbox(line["box"])
+                if _bbox_overlap_ratio(img_bbox_flat, lb) > 0.5:
+                    if line["text"].strip() and all_text.strip() and line["text"].strip() in all_text or all_text.strip() in line["text"].strip():
+                        is_duplicate = True
+                        break
+            if is_duplicate:
+                continue
+            confs = [item[2] for item in ocr_result if len(item) > 2 and isinstance(item[2], (int, float))]
+            page_lines.append({
+                "text": all_text,
+                "confidence": sum(confs) / len(confs) if confs else 0.9,
+                "box": img_box,
+                "source": "ocr_image",
+            })
 
     page_lines.sort(key=lambda x: (x["box"][0][1], x["box"][0][0]))
     return page_lines, page_width, page_height

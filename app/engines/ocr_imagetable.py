@@ -59,6 +59,22 @@ def _bbox_overlap_area(a: list[float], b: list[float]) -> float:
     return (x1 - x0) * (y1 - y0)
 
 
+def _bbox_area(b: list[float]) -> float:
+    """Bbox alanı."""
+    if len(b) < 4:
+        return 0.0
+    return (b[2] - b[0]) * (b[3] - b[1])
+
+
+def _is_mostly_inside(inner: list[float], outer: list[float], ratio: float = 0.5) -> bool:
+    """inner bbox, outer içinde yeterince mi (alan oranı >= ratio)?"""
+    area_inner = _bbox_area(inner)
+    if area_inner <= 0:
+        return False
+    overlap = _bbox_overlap_area(inner, outer)
+    return overlap / area_inner >= ratio
+
+
 def _find_cell_for_image(
     img_bbox: list[float],
     tables_with_cells: list[tuple[list[list[str]], list[list[list[float] | None]], list[float]]],
@@ -99,31 +115,7 @@ def _process_page_imagetable(
     page_width = page_bbox[2] - page_bbox[0] if page_bbox else None
     page_height = page_bbox[3] - page_bbox[1] if page_bbox else None
 
-    # 1) pdfplumber: metin blokları (chars -> satır)
-    text_blocks: list[dict] = []
-    try:
-        chars = getattr(pdfplumber_page, "chars", None) or []
-        if chars:
-            from operator import itemgetter
-            import itertools
-            by_top = itertools.groupby(sorted(chars, key=itemgetter("top")), key=itemgetter("top"))
-            for _top, grp in by_top:
-                ch_list = list(grp)
-                if not ch_list:
-                    continue
-                x0 = min(c["x0"] for c in ch_list)
-                y0 = min(c["top"] for c in ch_list)
-                x1 = max(c["x1"] for c in ch_list)
-                y1 = max(c["bottom"] for c in ch_list)
-                line_text = "".join(
-                    c.get("text", "") for c in sorted(ch_list, key=itemgetter("x0"))
-                )
-                if line_text.strip():
-                    text_blocks.append({"text": line_text.strip(), "bbox": [x0, y0, x1, y1]})
-    except Exception:
-        pass
-
-    # 2) pdfplumber: tablolar (yapı + hücre bbox)
+    # 1) pdfplumber: tablolar önce (sonra metin bloklarını tablo dışında bırakacağız)
     tables_found = pdfplumber_page.find_tables()
     tables_with_cells: list[tuple[list[list[str]], list[list[list[float] | None]], list[float]]] = []
     tables_data: list[dict[str, Any]] = []
@@ -149,6 +141,43 @@ def _process_page_imagetable(
             "bbox": tbl_bbox,
             "cells_bbox": cells_bbox,
         })
+
+    table_bboxes = [t["bbox"] for t in tables_data if t.get("bbox")]
+
+    # 2) pdfplumber: metin blokları (chars -> satır), satır toleransı ile; tablo içindekiler hariç
+    LINE_TOLERANCE = 3.0  # Aynı satır sayılacak y farkı (pt)
+    text_blocks: list[dict] = []
+    try:
+        chars = getattr(pdfplumber_page, "chars", None) or []
+        if chars:
+            from operator import itemgetter
+            import itertools
+            sorted_chars = sorted(chars, key=itemgetter("top"))
+            # top değerine göre grupla; yakın top'ları aynı satır yap (tolerance)
+            def line_key(c):
+                t = c["top"]
+                return round(t / LINE_TOLERANCE) * LINE_TOLERANCE
+            by_line = itertools.groupby(sorted_chars, key=line_key)
+            for _line_y, grp in by_line:
+                ch_list = list(grp)
+                if not ch_list:
+                    continue
+                x0 = min(c["x0"] for c in ch_list)
+                y0 = min(c["top"] for c in ch_list)
+                x1 = max(c["x1"] for c in ch_list)
+                y1 = max(c["bottom"] for c in ch_list)
+                line_text = "".join(
+                    c.get("text", "") for c in sorted(ch_list, key=itemgetter("x0"))
+                )
+                if not line_text.strip():
+                    continue
+                blk_bbox = [x0, y0, x1, y1]
+                # Tablo içinde kalan metni ekleme (iç içe / tekrar olmasın)
+                if any(_is_mostly_inside(blk_bbox, tb, 0.5) for tb in table_bboxes if tb):
+                    continue
+                text_blocks.append({"text": line_text.strip(), "bbox": blk_bbox})
+    except Exception:
+        pass
 
     # 3) fitz: gömülü resimleri çıkar, OCR yap, hücreye veya text_block'a yaz
     doc = fitz.open(pdf_path)
@@ -190,18 +219,34 @@ def _process_page_imagetable(
     finally:
         doc.close()
 
-    # 4) content: tüm metin + tablo satırları
-    content_parts = [tb["text"] for tb in text_blocks]
+    # 4) İçerik sırası: sayfa konumuna göre (y, x) okuma sırası — iç içe geçme olmasın
+    # Her öğe: (y0, x0, satırlar listesi)
+    ordered_items: list[tuple[float, float, list[str]]] = []
+    for tb in text_blocks:
+        b = tb.get("bbox") or [0, 0, 0, 0]
+        ordered_items.append((b[1], b[0], [tb["text"]]))
     for t in tables_data:
-        for row in t["rows"]:
-            content_parts.append(" | ".join(str(c) for c in row))
+        tbl_bbox = t.get("bbox") or [0, 0, 0, 0]
+        y0, x0 = tbl_bbox[1], tbl_bbox[0]
+        rows_as_lines = [" | ".join(str(c) for c in row) for row in t["rows"]]
+        ordered_items.append((y0, x0, rows_as_lines))
+    ordered_items.sort(key=lambda x: (x[0], x[1]))
+    content_parts = []
+    for _y, _x, lines in ordered_items:
+        content_parts.extend(lines)
     content = "\n".join(content_parts).strip()
+
+    # text_blocks: okuma sırası (önce y, sonra x)
+    text_blocks_sorted = sorted(
+        text_blocks,
+        key=lambda tb: ((tb.get("bbox") or [0, 0, 0, 0])[1], (tb.get("bbox") or [0, 0, 0, 0])[0]),
+    )
 
     return {
         "page_number": page_idx + 1,
         "content": content,
         "tables": tables_data,
-        "text_blocks": text_blocks,
+        "text_blocks": text_blocks_sorted,
         "page_width": page_width,
         "page_height": page_height,
     }

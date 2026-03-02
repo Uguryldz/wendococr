@@ -87,9 +87,9 @@
         <div class="pane-header">
           <span>Koordinatlı metin çıktısı</span>
           <div class="actions grid-params">
-            <label>Karakter genişliği (pt): <input type="number" id="paramCharWidth" value="8" min="4" max="20"></label>
-            <label>Satır yüksekliği (pt): <input type="number" id="paramLineHeight" value="12" min="6" max="30"></label>
-            <label>Y eşik (pt): <input type="number" id="paramYThreshold" value="6" min="1" max="20" title="Aynı satır kabul edilen y farkı"></label>
+            <label>Karakter genişliği (pt): <input type="number" id="paramCharWidth" value="10" min="4" max="24" title="Küçük = sıkı, büyük = seyrek"></label>
+            <label>Satır yüksekliği (pt): <input type="number" id="paramLineHeight" value="14" min="6" max="30"></label>
+            <label>Y eşik (pt): <input type="number" id="paramYThreshold" value="4" min="1" max="20" title="Aynı satır sayılan max y farkı; küçük = daha çok satır"></label>
           </div>
         </div>
         <div class="pane-body" id="outputWrap">
@@ -191,14 +191,18 @@
       }
       if (currentRow.length) rows.push(currentRow);
 
-      // Her satırda: sütun indeksi = x / charWidth (karakter birimi). Boşluklarla doldur.
+      // Her satırda: sütun = x/charWidth; çakışmayı önle — üzerine yazma, sağa kaydır, bloklar arası 1 boşluk
       const lines = [];
       for (const row of rows) {
+        row.sort((a, b) => a.x - b.x);
+        let lastEnd = 0;
+        const segments = row.map(it => {
+          const wantCol = Math.round(it.x / charWidth);
+          const col = wantCol <= lastEnd ? lastEnd + 1 : wantCol; // en az 1 boşluk ara
+          lastEnd = col + it.text.length;
+          return { col, text: it.text };
+        });
         let maxEnd = 0;
-        const segments = row.map(it => ({
-          col: Math.round(it.x / charWidth),
-          text: it.text
-        }));
         for (const s of segments) {
           const end = s.col + s.text.length;
           if (end > maxEnd) maxEnd = end;
