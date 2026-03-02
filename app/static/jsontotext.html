@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JSON → Metin (Grid Mapping) | wendococr</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #333; }
+    .layout { display: flex; flex-direction: column; height: 100vh; }
+    .toolbar {
+      display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+      padding: 8px 16px; background: #fff; border-bottom: 1px solid #e0e0e0;
+    }
+    .toolbar button {
+      display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+      border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer;
+      font-size: 13px;
+    }
+    .toolbar button:hover { background: #f5f5f5; border-color: #ccc; }
+    .panes { display: flex; flex: 1; min-height: 0; }
+    .pane {
+      flex: 1; display: flex; flex-direction: column; background: #fff;
+      border: 1px solid #e0e0e0; margin: 8px; border-radius: 8px; overflow: hidden;
+    }
+    .pane:first-child { margin-right: 4px; }
+    .pane:last-child { margin-left: 4px; }
+    .pane-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 14px;
+    }
+    .pane-header .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pane-header .actions button { padding: 4px 10px; font-size: 12px; }
+    .pane-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #jsonInput {
+      width: 100%; height: 100%; min-height: 200px; padding: 12px;
+      border: none; resize: none; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px;
+      line-height: 1.5;
+    }
+    #jsonInput::placeholder { color: #999; }
+    #textOutput {
+      width: 100%; height: 100%; min-height: 200px; padding: 12px;
+      border: none; resize: none; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px;
+      line-height: 1.4; background: #fafafa;
+    }
+    #outputWrap.empty #textOutput { color: #999; }
+    #outputWrap {
+      flex: 1; min-height: 0; display: flex; flex-direction: column;
+    }
+    #outputWrap.empty {
+      display: flex; align-items: center; justify-content: center; flex-direction: column;
+      color: #999; font-size: 14px; gap: 8px;
+    }
+    #outputWrap.empty #textOutput { display: none; }
+    #outputWrap.empty .placeholder { display: block; }
+    #outputWrap .placeholder { display: none; }
+    .placeholder .icon { font-size: 48px; opacity: 0.5; }
+    .grid-params {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12px;
+    }
+    .grid-params label { display: flex; align-items: center; gap: 4px; }
+    .grid-params input[type="number"] { width: 56px; padding: 2px 6px; }
+    .error { color: #c00; padding: 12px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="toolbar">
+      <span style="margin-right:auto; font-weight:600;">JSON → Metin (koordinatlı grid mapping)</span>
+      <button type="button" id="btnDownloadTxt" title="TXT indir">↓ TXT İndir</button>
+    </div>
+    <div class="panes">
+      <div class="pane">
+        <div class="pane-header">
+          <span>Paste JSON here</span>
+          <div class="actions">
+            <button type="button" id="btnSample">Sample</button>
+            <button type="button" id="btnUpload">↑ Upload</button>
+            <input type="file" id="fileUpload" accept=".json,application/json" hidden>
+          </div>
+        </div>
+        <div class="pane-body">
+          <textarea id="jsonInput" placeholder="Paste your JSON here (wendococr API koordinatlı yanıtı)"></textarea>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-header">
+          <span>Koordinatlı metin çıktısı</span>
+          <div class="actions grid-params">
+            <label>Karakter genişliği (pt): <input type="number" id="paramCharWidth" value="8" min="4" max="20"></label>
+            <label>Satır yüksekliği (pt): <input type="number" id="paramLineHeight" value="12" min="6" max="30"></label>
+            <label>Y eşik (pt): <input type="number" id="paramYThreshold" value="6" min="1" max="20" title="Aynı satır kabul edilen y farkı"></label>
+          </div>
+        </div>
+        <div class="pane-body" id="outputWrap">
+          <div class="placeholder">
+            <span class="icon">▦</span>
+            <span>JSON yapıştır veya yükle</span>
+            <span>Koordinatlara göre hizalı metin burada görünecek</span>
+          </div>
+          <textarea id="textOutput" readonly placeholder=""></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const jsonInput = document.getElementById('jsonInput');
+    const textOutput = document.getElementById('textOutput');
+    const outputWrap = document.getElementById('outputWrap');
+    const fileUpload = document.getElementById('fileUpload');
+
+    function parseBbox(bbox) {
+      if (!bbox) return null;
+      if (Array.isArray(bbox) && bbox.length >= 4) return { x0: bbox[0], y0: bbox[1], x1: bbox[2], y1: bbox[3] };
+      if (typeof bbox === 'object') return {
+        x0: bbox.x0 ?? bbox[0],
+        y0: bbox.y0 ?? bbox.top ?? bbox[1],
+        x1: bbox.x1 ?? bbox[2],
+        y1: bbox.y1 ?? bbox.bottom ?? bbox[3]
+      };
+      return null;
+    }
+
+    /**
+     * Grid (ızgarа) mapping: Koordinatlardan satır/sütun konumuna çevirip
+     * y (satır), x (sütun) sıralı metin üretir. Y eşik ile aynı satır birleştirilir.
+     */
+    function pageToGridText(page, charWidth, lineHeight, yThreshold) {
+      const items = []; // { y, x, text }
+
+      // Metin blokları
+      const textBlocks = page.text_blocks || [];
+      for (const blk of textBlocks) {
+        const b = parseBbox(blk.bbox);
+        if (!b) continue;
+        const text = (blk.text != null ? String(blk.text) : '').replace(/\r\n/g, '\n').trim();
+        if (!text) continue;
+        items.push({ y: b.y0, x: b.x0, text: text });
+      }
+
+      // Tablolar: her hücreyi (y, x, metin) olarak ekle
+      const tables = page.tables || [];
+      for (const tbl of tables) {
+        const rows = tbl.rows || [];
+        const cellsBbox = tbl.cells_bbox || null;
+        for (let ri = 0; ri < rows.length; ri++) {
+          const row = rows[ri];
+          const cells = Array.isArray(row) ? row : [row];
+          for (let ci = 0; ci < cells.length; ci++) {
+            const cellText = String(cells[ci] ?? '').trim();
+            let y = 0, x = 0;
+            if (cellsBbox && cellsBbox[ri] && cellsBbox[ri][ci]) {
+              const cb = parseBbox(cellsBbox[ri][ci]);
+              if (cb) { y = cb.y0; x = cb.x0; }
+            } else {
+              const tb = parseBbox(tbl.bbox);
+              if (tb) {
+                const rowH = (tb.y1 - tb.y0) / Math.max(1, rows.length);
+                const colW = (tb.x1 - tb.x0) / Math.max(1, cells.length);
+                y = tb.y0 + ri * rowH;
+                x = tb.x0 + ci * colW;
+              }
+            }
+            if (cellText) items.push({ y, x, text: cellText });
+          }
+        }
+      }
+
+      if (items.length === 0) return '';
+
+      // Önce y'ye, sonra x'e göre sırala
+      items.sort((a, b) => {
+        if (Math.abs(a.y - b.y) <= yThreshold) return a.x - b.x;
+        return a.y - b.y;
+      });
+
+      // Satırları grupla (y birbirine yThreshold içinde yakınsa aynı satır)
+      const rows = [];
+      let currentRow = [];
+      let currentRowY = items[0].y;
+
+      for (const it of items) {
+        if (it.y - currentRowY <= yThreshold) {
+          currentRow.push(it);
+        } else {
+          if (currentRow.length) rows.push(currentRow);
+          currentRow = [it];
+          currentRowY = it.y;
+        }
+      }
+      if (currentRow.length) rows.push(currentRow);
+
+      // Her satırda: sütun indeksi = x / charWidth (karakter birimi). Boşluklarla doldur.
+      const lines = [];
+      for (const row of rows) {
+        let maxEnd = 0;
+        const segments = row.map(it => ({
+          col: Math.round(it.x / charWidth),
+          text: it.text
+        }));
+        for (const s of segments) {
+          const end = s.col + s.text.length;
+          if (end > maxEnd) maxEnd = end;
+        }
+        const lineArr = Array(maxEnd).fill(' ');
+        for (const s of segments) {
+          const t = s.text;
+          for (let i = 0; i < t.length && s.col + i < lineArr.length; i++) {
+            lineArr[s.col + i] = t[i];
+          }
+        }
+        lines.push(lineArr.join('').replace(/\s+$/, ''));
+      }
+      return lines.join('\n');
+    }
+
+    function render() {
+      const raw = jsonInput.value.trim();
+      outputWrap.classList.remove('empty');
+      textOutput.value = '';
+
+      if (!raw) {
+        outputWrap.classList.add('empty');
+        return;
+      }
+
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (e) {
+        textOutput.value = 'Hata: Geçersiz JSON – ' + e.message;
+        return;
+      }
+
+      const pages = data.pages;
+      if (!Array.isArray(pages) || pages.length === 0) {
+        textOutput.value = 'Hata: "pages" dizisi bulunamadı veya boş.';
+        return;
+      }
+
+      const charWidth = Math.max(4, Math.min(20, Number(document.getElementById('paramCharWidth').value) || 8));
+      const lineHeight = Math.max(6, Math.min(30, Number(document.getElementById('paramLineHeight').value) || 12));
+      const yThreshold = Math.max(1, Math.min(20, Number(document.getElementById('paramYThreshold').value) || 6));
+
+      const pageTexts = [];
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        const txt = pageToGridText(page, charWidth, lineHeight, yThreshold);
+        if (pages.length > 1) {
+          pageTexts.push('——— Sayfa ' + (page.page_number ?? i + 1) + ' ———');
+          pageTexts.push(txt);
+        } else {
+          pageTexts.push(txt);
+        }
+      }
+      textOutput.value = pageTexts.join('\n\n').trim() || '(Bu sayfada metin yok)';
+    }
+
+    document.getElementById('btnSample').onclick = function() {
+      const sample = {
+        "filename": "sample.pdf",
+        "method_used": "pdftext",
+        "processing_time_sec": 0.5,
+        "pages": [{
+          "page_number": 1,
+          "content": "Fatura No: 12345\nTarih: 01.03.2025",
+          "text_blocks": [
+            { "text": "Fatura No: 12345", "bbox": { "x0": 72, "y0": 100, "x1": 220, "y1": 118 } },
+            { "text": "Tarih: 01.03.2025", "bbox": { "x0": 72, "y0": 125, "x1": 200, "y1": 143 } }
+          ],
+          "tables": [{
+            "rows": [["Ürün", "Adet", "Tutar"], ["Kalem", "2", "20 TL"], ["Defter", "1", "15 TL"]],
+            "bbox": { "x0": 72, "y0": 200, "x1": 350, "y1": 280 },
+            "cells_bbox": [
+              [{ "x0": 72, "y0": 200, "x1": 158, "y1": 220 }, { "x0": 158, "y0": 200, "x1": 244, "y1": 220 }, { "x0": 244, "y0": 200, "x1": 350, "y1": 220 }],
+              [{ "x0": 72, "y0": 220, "x1": 158, "y1": 240 }, { "x0": 158, "y0": 220, "x1": 244, "y1": 240 }, { "x0": 244, "y0": 220, "x1": 350, "y1": 240 }],
+              [{ "x0": 72, "y0": 240, "x1": 158, "y1": 280 }, { "x0": 158, "y0": 240, "x1": 244, "y1": 280 }, { "x0": 244, "y0": 240, "x1": 350, "y1": 280 }]
+            ]
+          }],
+          "page_width": 595,
+          "page_height": 842
+        }]
+      };
+      jsonInput.value = JSON.stringify(sample, null, 2);
+      render();
+    };
+
+    document.getElementById('btnUpload').onclick = function() { fileUpload.click(); };
+    fileUpload.onchange = function() {
+      const f = fileUpload.files && fileUpload.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = function() { jsonInput.value = r.result; render(); };
+      r.readAsText(f);
+      fileUpload.value = '';
+    };
+
+    document.getElementById('paramCharWidth').onchange = render;
+    document.getElementById('paramLineHeight').onchange = render;
+    document.getElementById('paramYThreshold').onchange = render;
+
+    jsonInput.addEventListener('input', function() { render(); });
+    jsonInput.addEventListener('paste', function() { setTimeout(render, 0); });
+
+    document.getElementById('btnDownloadTxt').onclick = function() {
+      const txt = textOutput.value;
+      if (!txt) return;
+      const blob = new Blob([txt], { type: 'text/plain; charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'jsontotext-export.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+  </script>
+</body>
+</html>
