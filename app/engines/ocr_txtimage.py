@@ -1,27 +1,68 @@
+"""
+pdftxtimage motoru: PDF'te native metin + gömülü resim OCR (Tesseract Türkçe).
+Findeks Raporu vb. hibrit belgeler için. pdfimagetable ile aynı OCR kullanılır.
+
+KİLİTLİ: Bu modül düzgün çalışıyor; sonraki işlemlerde bu dosyaya müdahale etmeyin.
+
+Kullanılan kütüphaneler / versiyon (requirements.txt ile uyumlu):
+  - PyMuPDF (fitz): pymupdf>=1.23.0  — PDF okuma, metin blokları, gömülü resim çıkarma
+  - Tesseract: pytesseract>=0.3.10 + sistem tesseract-ocr, tesseract-ocr-tur — gömülü resim OCR (lang=tur, --oem 3 --psm 6)
+  - OpenCV: opencv-python-headless>=4.8.0 — görüntü dönüşümü
+  - app.utils.image_preprocess: preprocess_image (grayscale, threshold, deskew)
+"""
 import fitz  # PyMuPDF
 import json
 import os
 import time
 import numpy as np
 import cv2
+import pytesseract
 from pathlib import Path
 from typing import Any
 
-from rapidocr_onnxruntime import RapidOCR
 import traceback
 
-_rapid_engine = None
+from app.utils.image_preprocess import preprocess_image
+
+# Gömülü resim OCR: pdfimagetable ile aynı — Tesseract Türkçe (--oem 3 --psm 6)
+TESSERACT_CONFIG = "--oem 3 --psm 6"
 
 
-def _get_rapid_engine():
-    """RapidOCR örneğini tekilleştirir (lazy)."""
-    global _rapid_engine
-    if _rapid_engine is None:
-        try:
-            _rapid_engine = RapidOCR(det_limit_side_len=960)
-        except Exception:
-            pass
-    return _rapid_engine
+def _ocr_embedded_image_tesseract(img_np: np.ndarray) -> list[tuple[list, str]]:
+    """
+    Görüntü üzerinde Tesseract Türkçe OCR. Çıktı: [(box_4pts, text), ...].
+    """
+    if img_np is None or img_np.size == 0:
+        return []
+    if len(img_np.shape) == 2:
+        img = cv2.cvtColor(img_np, cv2.COLOR_GRAY2BGR)
+    else:
+        img = img_np.copy()
+    img = preprocess_image(img, grayscale=True, threshold=True, deskew=True)
+    out = []
+    try:
+        data = pytesseract.image_to_data(
+            img, lang="tur", config=TESSERACT_CONFIG, output_type=pytesseract.Output.DICT
+        )
+        n = len(data.get("text") or [])
+        for i in range(n):
+            text = (data.get("text") or [])[i] or ""
+            if not text.strip():
+                continue
+            left = int((data.get("left") or [0])[i])
+            top = int((data.get("top") or [0])[i])
+            width = int((data.get("width") or [0])[i])
+            height = int((data.get("height") or [0])[i])
+            box = [
+                [float(left), float(top)],
+                [float(left + width), float(top)],
+                [float(left + width), float(top + height)],
+                [float(left), float(top + height)],
+            ]
+            out.append((box, text))
+    except Exception:
+        pass
+    return out
 
 
 def _box_to_bbox(box: list) -> list[float]:
@@ -50,9 +91,9 @@ def _bbox_overlap_ratio(inner: list[float], outer: list[float]) -> float:
     return overlap / area_inner
 
 
-def _process_page(page, ocr_engine) -> tuple[list[dict], float, float]:
+def _process_page(page) -> tuple[list[dict], float, float]:
     """
-    Tek sayfa: native metin + resim OCR, spatial sıralı satır listesi.
+    Tek sayfa: native metin + resim OCR (Tesseract Türkçe), spatial sıralı satır listesi.
     Döner: (page_lines, page_width, page_height).
     """
     rect = page.rect
@@ -73,7 +114,7 @@ def _process_page(page, ocr_engine) -> tuple[list[dict], float, float]:
                     "source": "native",
                 })
 
-    # 2. Resim blokları → OCR (resim başına tek blok; iç içe geçmesin)
+    # 2. Resim blokları → Tesseract Türkçe OCR (pdfimagetable ile aynı)
     image_list = page.get_image_info(hashes=False)
     for img_info in image_list:
         bbox = img_info["bbox"]
@@ -87,9 +128,8 @@ def _process_page(page, ocr_engine) -> tuple[list[dict], float, float]:
             img_np = cv2.cvtColor(img_np, cv2.COLOR_RGBA2RGB)
         gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
         processed = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
-        ocr_result, _ = ocr_engine(processed)
+        ocr_result = _ocr_embedded_image_tesseract(processed)
         if ocr_result:
-            # Resimdeki tüm metni tek satırda topla; konum = resim bbox (iç içe girmez)
             all_text = " ".join(item[1].strip() for item in ocr_result if item[1]).strip()
             if not all_text:
                 continue
@@ -98,22 +138,20 @@ def _process_page(page, ocr_engine) -> tuple[list[dict], float, float]:
                 [bbox[2], bbox[3]], [bbox[0], bbox[3]],
             ]
             img_bbox_flat = [bbox[0], bbox[1], bbox[2], bbox[3]]
-            # Aynı metin zaten native satırda varsa (örtüşen bbox) tekrar ekleme
             is_duplicate = False
             for line in page_lines:
                 if line.get("source") != "native":
                     continue
                 lb = _box_to_bbox(line["box"])
                 if _bbox_overlap_ratio(img_bbox_flat, lb) > 0.5:
-                    if line["text"].strip() and all_text.strip() and line["text"].strip() in all_text or all_text.strip() in line["text"].strip():
+                    if line["text"].strip() and all_text.strip() and (line["text"].strip() in all_text or all_text.strip() in line["text"].strip()):
                         is_duplicate = True
                         break
             if is_duplicate:
                 continue
-            confs = [item[2] for item in ocr_result if len(item) > 2 and isinstance(item[2], (int, float))]
             page_lines.append({
                 "text": all_text,
-                "confidence": sum(confs) / len(confs) if confs else 0.9,
+                "confidence": 0.9,
                 "box": img_box,
                 "source": "ocr_image",
             })
@@ -135,10 +173,6 @@ def extract(
     if not path or not path.exists():
         return []
 
-    engine = _get_rapid_engine()
-    if engine is None:
-        return []
-
     out = []
     try:
         doc = fitz.open(path)
@@ -148,7 +182,7 @@ def extract(
             pages_to_process = [i for i in page_numbers if 0 <= i < total]
         for page_idx in pages_to_process:
             page = doc.load_page(page_idx)
-            page_lines, page_width, page_height = _process_page(page, engine)
+            page_lines, page_width, page_height = _process_page(page)
             content = "\n".join(l["text"] for l in page_lines).strip()
             text_blocks = [
                 {"text": l["text"], "bbox": _box_to_bbox(l["box"])}
@@ -171,18 +205,14 @@ def extract(
 
 def process_findeks_special(pdf_path, output_json, ocr_engine=None, page_limit=999):
     """
-    Findeks PDF'leri için özel hibrit motor:
+    Findeks PDF'leri için özel hibrit motor (gömülü resimler Tesseract Türkçe ile OCR).
     1. Metin bloklarını doğrudan çeker.
-    2. Resim bloklarını tespit eder, OCR yapar.
+    2. Resim bloklarını tespit eder, Tesseract ile OCR yapar.
     3. Spatial (konumsal) birleştirme ile tablo yapısını korur.
+    ocr_engine parametresi artık kullanılmıyor; her zaman Tesseract Türkçe kullanılır.
     """
     if not os.path.exists(pdf_path):
         print(f"Hata: {pdf_path} bulunamadı.")
-        return
-
-    engine = ocr_engine or _get_rapid_engine()
-    if engine is None:
-        print("Hata: OCR engine kullanılamıyor.")
         return
 
     results = []
@@ -192,7 +222,7 @@ def process_findeks_special(pdf_path, output_json, ocr_engine=None, page_limit=9
         num_pages = min(len(doc), page_limit)
         for page_idx in range(num_pages):
             page = doc.load_page(page_idx)
-            page_lines, _, _ = _process_page(page, engine)
+            page_lines, _, _ = _process_page(page)
             results.append({"page": page_idx + 1, "lines": page_lines})
         doc.close()
         with open(output_json, "w", encoding="utf-8") as f:

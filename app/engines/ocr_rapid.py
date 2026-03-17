@@ -16,13 +16,16 @@ except ImportError:
 _rapid_engine = None
 
 def _get_rapid_engine():
-    """RapidOCR örneğini optimize edilmiş parametrelerle başlatır."""
+    """RapidOCR örneğini Türkçe/Latin dahil çok dilli kullanım için başlatır."""
     global _rapid_engine
     if _rapid_engine is None:
         try:
-            # det_limit_side_len: Yazı alanı ararken resmin uzun kenarını bu değere sabitler.
-            # 720 veya 960 hızı %300-400 artırır. 1280 çok keskindir ama yavaştır.
-            _rapid_engine = RapidOCR(det_limit_side_len=960) 
+            # det_limit_side_len: taranmış sayfa boyutu (960 hız/kalite dengesi)
+            # text_score: 0.4 — Türkçe/Latin karakterlerde daha toleranslı tanıma
+            _rapid_engine = RapidOCR(
+                det_limit_side_len=960,
+                text_score=0.4,
+            )
         except Exception:
             pass
     return _rapid_engine

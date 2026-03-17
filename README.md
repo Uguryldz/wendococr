@@ -5,9 +5,10 @@ PDF, JPG ve PNG belgelerini işleyen **FastAPI** tabanlı akıllı karar mekaniz
 ## Özellikler
 
 - **Auto mod:** Belge türüne göre otomatik engine seçimi (sayfa bazlı)
-- **Motorlar:** `pdftext` (PyMuPDF), `pdftexttable` (pdfplumber), `pdfimagev5` (RapidOCR), `pdfimagets` (Tesseract)
-- **API:** Her motorun ayrı ucu – `POST /v1/auto`, `/v1/pdftext`, `/v1/pdftexttable`, `/v1/pdfimagev5`, `/v1/pdfimagets` (hepsinde sadece `file` gönderilir)
-- **Çıktı:** Standart JSON (sayfa bazlı `content` + `tables`)
+- **Motorlar:** `pdftext` (PyMuPDF), `pdftexttable` (pdfplumber), `pdfimagev5` (RapidOCR), `pdfimagets` (Tesseract Türkçe), `pdftxtimage` (hibrit), `pdfimagetable` (tablo korumalı hibrit)
+- **API:** Her motorun ayrı ucu – `POST /v1/auto`, `/v1/pdftext`, `/v1/pdftexttable`, `/v1/pdfimagev5`, `/v1/pdfimagets`, `/v1/pdftxtimage`, `/v1/pdfimagetable`
+- **Parametreler:** `page_range` (1-5, 1,3,7), `format` (json/text)
+- **Çıktı:** JSON veya düz metin (sayfa bazlı `content` + `tables`)
 
 ## Kurulum
 
@@ -27,49 +28,30 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Çalıştırma
+### Docker
 
-**Önce sanal ortamı aktifleştirin** (paketler `.venv` içinde):
+```bash
+docker build -t wendococr .
+docker run -p 8099:8099 wendococr
+```
+
+### Ortam değişkenleri
+
+```bash
+cp .env.example .env
+# .env içinde: UPLOAD_DIR, MAX_FILE_SIZE_MB, MAX_PAGES, LOG_LEVEL, DEBUG, CORS_ORIGINS
+```
+
+## Çalıştırma
 
 ```bash
 source .venv/bin/activate   # Linux/macOS
-# Windows: .venv\Scripts\activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8099
-```
-
-Veya doğrudan venv’in uvicorn’unu kullanın (activate gerekmez):
-
-```bash
-.venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8099
-```
-
-Veya hazır script:
-
-```bash
-chmod +x run.sh && ./run.sh
 ```
 
 - API: http://localhost:8099  
 - Dokümantasyon: http://localhost:8099/docs  
 - Sağlık: http://localhost:8099/health  
-
-## Proje yapısı
-
-```
-wendococr/
-├── app/
-│   ├── api/           # routes: /v1/extract, /health
-│   ├── core/           # router.py (Brain – karar motoru)
-│   ├── engines/        # pdf_text, pdf_table, ocr_rapid, ocr_tesseract
-│   ├── utils/          # image_preprocess, pdf_convert
-│   ├── config.py
-│   ├── main.py
-│   └── schemas.py
-├── DEV_NOTES.md        # Geliştirme notları
-├── Project.md          # Proje spesifikasyonu
-├── requirements.txt
-└── README.md
-```
 
 ## API örnekleri
 
@@ -77,16 +59,46 @@ wendococr/
 # Otomatik karar (Brain)
 curl -X POST "http://localhost:8099/v1/auto" -F "file=@fatura.pdf"
 
-# Doğrudan PyMuPDF metin
+# Sadece 1–5. sayfalar, düz metin çıktı
+curl -X POST "http://localhost:8099/v1/auto?page_range=1-5&format=text" -F "file=@rapor.pdf"
+
+# PyMuPDF metin
 curl -X POST "http://localhost:8099/v1/pdftext" -F "file=@rapor.pdf"
 
-# Doğrudan tablo + metin
+# Tablo + metin
 curl -X POST "http://localhost:8099/v1/pdftexttable" -F "file=@tablo.pdf"
 
-# Doğrudan RapidOCR (taranmış / resim)
+# RapidOCR (taranmış / resim)
 curl -X POST "http://localhost:8099/v1/pdfimagev5" -F "file=@taranmis.pdf"
+
+# Türkçe OCR (Tesseract)
+curl -X POST "http://localhost:8099/v1/pdfimagets" -F "file=@taranmis.pdf"
+
+# Hibrit: metin + gömülü resim (Findeks vb.)
+curl -X POST "http://localhost:8099/v1/pdftxtimage" -F "file=@findeks.pdf"
+
+# Tablo yapısı korumalı hibrit
+curl -X POST "http://localhost:8099/v1/pdfimagetable" -F "file=@tablo.pdf"
 ```
 
-Yanıt: `filename`, `method_used`, `processing_time_sec`, `pages[]` (her sayfada `page_number`, `content`, `tables`).
+Yanıt (JSON): `filename`, `method_used`, `processing_time_sec`, `pages[]` (her sayfada `page_number`, `content`, `tables`, `text_blocks`).
 
-Detaylı mimari ve karar mantığı için `Project.md` ve `DEV_NOTES.md` dosyalarına bakın.
+## Proje yapısı
+
+```
+wendococr/
+├── app/
+│   ├── api/           # routes: /v1/*, /health
+│   ├── core/           # router.py (Brain – karar motoru)
+│   ├── engines/        # pdf_text, pdf_table, ocr_rapid, ocr_tesseract, ocr_txtimage, ocr_imagetable
+│   ├── utils/          # image_preprocess, pdf_convert, page_range
+│   ├── config.py
+│   ├── main.py
+│   └── schemas.py
+├── Dockerfile
+├── .env.example
+├── requirements.txt
+└── README.md
+```
+
+Detaylı mimari için `Project.md` ve `DEV_NOTES.md` dosyalarına bakın.

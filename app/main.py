@@ -1,11 +1,20 @@
 """FastAPI uygulama giriş noktası."""
+import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.api import router as api_router
+from app.config import CORS_ORIGINS, DEBUG, LOG_LEVEL
+
+# Logging
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("wendococr")
 
 # jsontotext sayfası için statik dosya yolu
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -35,12 +44,20 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 app.include_router(api_router)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """500 hatalarında tutarlı format; DEBUG'ta detay gösterir."""
+    logger.exception("Unexpected error: %s", exc)
+    detail = str(exc) if DEBUG else "Sunucu hatası. Lütfen tekrar deneyin."
+    return JSONResponse(status_code=500, content={"detail": detail})
 
 
 @app.get("/")

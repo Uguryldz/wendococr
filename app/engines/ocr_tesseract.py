@@ -29,8 +29,12 @@ def _run_tesseract(
     h, w = img.shape[:2]
     img = preprocess_image(img, grayscale=True, threshold=True, deskew=True)
     out = []
+    # Türkçe: lang=tur, LSTM motor (oem 3), blok metin (psm 6)
+    tesseract_config = "--oem 3 --psm 6"
     try:
-        data = pytesseract.image_to_data(img, lang="tur", output_type=pytesseract.Output.DICT)
+        data = pytesseract.image_to_data(
+            img, lang="tur", config=tesseract_config, output_type=pytesseract.Output.DICT
+        )
         n = len(data.get("text") or [])
         for i in range(n):
             text = (data.get("text") or [])[i] or ""

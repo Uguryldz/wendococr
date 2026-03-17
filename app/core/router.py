@@ -55,6 +55,7 @@ def process_document(
     file_path: Path,
     mode: str = "auto",
     content_type: str | None = None,
+    page_numbers: list[int] | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     """
     Belgeyi işler; sayfa bazlı karar (auto modda) uygular.
@@ -69,30 +70,27 @@ def process_document(
     # Lazy import: sadece kullanılan motor yüklenir
     if mode == "pdftext":
         from app.engines.pdf_text import extract as pdf_text_extract
-        raw = pdf_text_extract(path, page_numbers=None)
+        raw = pdf_text_extract(path, page_numbers=page_numbers)
         return raw, "pdftext"
     if mode == "pdftexttable":
         from app.engines.pdf_table import extract as pdf_table_extract
-        raw = pdf_table_extract(path, page_numbers=None)
+        raw = pdf_table_extract(path, page_numbers=page_numbers)
         return raw, "pdftexttable"
     if mode == "pdfimagev5":
-        return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5")
+        return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers)
     if mode == "pdfimagets":
-        return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagets")
+        return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagets", page_numbers=page_numbers)
     if mode == "pdftxtimage":
         from app.engines.ocr_txtimage import extract as ocr_txtimage_extract
-        raw = ocr_txtimage_extract(path, page_numbers=None)
+        raw = ocr_txtimage_extract(path, page_numbers=page_numbers)
         return raw, "pdftxtimage"
     if mode == "pdfimagetable":
         from app.engines.ocr_imagetable import extract as ocr_imagetable_extract
-        raw = ocr_imagetable_extract(path, page_numbers=None)
+        raw = ocr_imagetable_extract(path, page_numbers=page_numbers)
         return raw, "pdfimagetable"
-
     # --- AUTO ---
     if content_type and content_type.lower() in ALLOWED_IMAGE_TYPES:
-        from app.engines.ocr_rapid import extract as ocr_rapid_extract
-        raw = ocr_rapid_extract(path, page_numbers=[0])
-        return raw, "pdfimagev5"
+        return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers or [0])
 
     if content_type and content_type.lower() == ALLOWED_PDF_TYPE:
         pass
@@ -100,9 +98,7 @@ def process_document(
         if path.suffix.lower() == ".pdf":
             content_type = ALLOWED_PDF_TYPE
         else:
-            from app.engines.ocr_rapid import extract as ocr_rapid_extract
-            raw = ocr_rapid_extract(path, page_numbers=[0])
-            return raw, "pdfimagev5"
+            return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers or [0])
 
     # PDF auto: sayfa bazlı karar (pdf_convert ve engines ilk kullanımda yüklenir)
     from app.utils.pdf_convert import pdf_page_count, pdf_page_to_image
@@ -113,14 +109,17 @@ def process_document(
     n_pages = pdf_page_count(path)
     if n_pages == 0:
         return [], ""
+    indices = page_numbers if page_numbers is not None else list(range(n_pages))
+    indices = [i for i in indices if 0 <= i < n_pages]
     all_pages: list[dict[str, Any]] = []
     methods_used: list[str] = []
     empty_page = {"page_number": 0, "content": "", "tables": [], "text_blocks": [], "page_width": None, "page_height": None}
 
-    for i in range(n_pages):
+    for i in indices:
         engine = _decide_engine_for_pdf_page(path, i)
         methods_used.append(engine)
-        empty_page = {"page_number": i + 1, "content": "", "tables": [], "text_blocks": [], "page_width": None, "page_height": None}
+        ep = dict(empty_page)
+        ep["page_number"] = i + 1
 
         if engine == "pdftext":
             part = pdf_text_extract(path, page_numbers=[i])
@@ -131,7 +130,7 @@ def process_document(
             if png_bytes:
                 part = ocr_rapid_extract(path, page_numbers=[i], image_bytes=png_bytes)
             else:
-                part = [dict(empty_page)]
+                part = [ep]
         all_pages.extend(part)
 
     if not methods_used:
@@ -144,6 +143,7 @@ def _run_ocr_pdf_or_image(
     path: Path,
     content_type: str | None,
     engine: str,
+    page_numbers: list[int] | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     """PDF veya resim; OCR motoru lazy yüklenir."""
     path = Path(path)
@@ -154,8 +154,10 @@ def _run_ocr_pdf_or_image(
     if is_pdf:
         from app.utils.pdf_convert import pdf_page_count, pdf_page_to_image
         n_pages = pdf_page_count(path)
+        indices = page_numbers if page_numbers is not None else list(range(n_pages))
+        indices = [i for i in indices if 0 <= i < n_pages]
         all_pages = []
-        for i in range(n_pages):
+        for i in indices:
             png_bytes = pdf_page_to_image(path, i, dpi=150)
             if png_bytes:
                 if engine == "pdfimagev5":
@@ -170,6 +172,7 @@ def _run_ocr_pdf_or_image(
             all_pages.extend(part)
         return all_pages, engine
 
+    # Tek sayfa resim
     if engine == "pdfimagev5":
         from app.engines.ocr_rapid import extract as ocr_rapid_extract
         raw = ocr_rapid_extract(path, page_numbers=[0])

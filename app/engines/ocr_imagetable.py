@@ -1,6 +1,15 @@
 """
-Tablo yapısını koruyan hibrit motor: pdfplumber ile tablo/metin yapısı, fitz ile gömülü
-resim çıkarımı ve OCR. PDF sayfa düzeni bozulmaz.
+pdfimagetable motoru: Tablo yapısı koruyan hibrit — pdfplumber (tablo/metin) + fitz (gömülü resim) + Tesseract Türkçe (OCR).
+Findeks Raporu, kredi raporu vb. tablo + gömülü resim içeren belgeler için. PDF sayfa düzeni bozulmaz.
+
+KİLİTLİ: Bu modül düzgün çalışıyor; sonraki işlemlerde bu dosyaya müdahale etmeyin.
+
+Kullanılan kütüphaneler / versiyon (requirements.txt ile uyumlu):
+  - pdfplumber: pdfplumber>=0.10.0 — tablo tespiti, hücre bbox, metin (chars)
+  - PyMuPDF (fitz): pymupdf>=1.23.0 — gömülü resim çıkarma
+  - Tesseract: pytesseract>=0.3.10 + sistem tesseract-ocr, tesseract-ocr-tur — gömülü resim OCR (lang=tur, --oem 3 --psm 6)
+  - OpenCV: opencv-python-headless>=4.8.0 — görüntü dönüşümü
+  - app.utils.image_preprocess: preprocess_image (grayscale, threshold, deskew)
 """
 from pathlib import Path
 from typing import Any
@@ -10,21 +19,51 @@ import numpy as np
 import pdfplumber
 import fitz
 import traceback
+import pytesseract
 
-from rapidocr_onnxruntime import RapidOCR
+from app.utils.image_preprocess import preprocess_image
 
-_rapid_engine = None
+# Gömülü resim OCR: Türkçe için Tesseract (--oem 3 --psm 6)
+TESSERACT_CONFIG = "--oem 3 --psm 6"
 
 
-def _get_rapid_engine():
-    """OCR engine tekilleştirir (lazy)."""
-    global _rapid_engine
-    if _rapid_engine is None:
-        try:
-            _rapid_engine = RapidOCR(det_limit_side_len=960)
-        except Exception:
-            pass
-    return _rapid_engine
+def _ocr_embedded_image_tesseract(img_np: np.ndarray) -> list[tuple[list, str]]:
+    """
+    Görüntü üzerinde Tesseract Türkçe OCR. RapidOCR ile aynı çıktı formatı:
+    [(box_4pts, text), ...] böylece mevcut kod item[1] ile metni alır.
+    """
+    if img_np is None or img_np.size == 0:
+        return []
+    if len(img_np.shape) == 2:
+        img = cv2.cvtColor(img_np, cv2.COLOR_GRAY2BGR)
+    else:
+        img = img_np.copy()
+    img = preprocess_image(img, grayscale=True, threshold=True, deskew=True)
+    out = []
+    try:
+        data = pytesseract.image_to_data(
+            img, lang="tur", config=TESSERACT_CONFIG, output_type=pytesseract.Output.DICT
+        )
+        n = len(data.get("text") or [])
+        for i in range(n):
+            text = (data.get("text") or [])[i] or ""
+            if not text.strip():
+                continue
+            left = int((data.get("left") or [0])[i])
+            top = int((data.get("top") or [0])[i])
+            width = int((data.get("width") or [0])[i])
+            height = int((data.get("height") or [0])[i])
+            # 4 nokta formatı (RapidOCR uyumlu)
+            box = [
+                [float(left), float(top)],
+                [float(left + width), float(top)],
+                [float(left + width), float(top + height)],
+                [float(left), float(top + height)],
+            ]
+            out.append((box, text))
+    except Exception:
+        pass
+    return out
 
 
 def _bbox_to_list(bbox: tuple[float, float, float, float] | None) -> list[float] | None:
@@ -105,11 +144,10 @@ def _process_page_imagetable(
     pdf_path: Path,
     page_idx: int,
     pdfplumber_page,
-    ocr_engine,
 ) -> dict[str, Any]:
     """
-    Tek sayfa: pdfplumber ile tablo + metin yapısı, fitz ile gömülü resimleri OCR'layıp
-    tablo hücreleriyle eşleştirir. PDF yapısı korunur.
+    Tek sayfa: pdfplumber ile tablo + metin yapısı, fitz ile gömülü resimleri
+    Tesseract (Türkçe) ile OCR'layıp tablo hücreleriyle eşleştirir. PDF yapısı korunur.
     """
     page_bbox = pdfplumber_page.bbox
     page_width = page_bbox[2] - page_bbox[0] if page_bbox else None
@@ -196,7 +234,7 @@ def _process_page_imagetable(
                 img_np = cv2.cvtColor(img_np, cv2.COLOR_RGBA2RGB)
             gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
             processed = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
-            ocr_result, _ = ocr_engine(processed)
+            ocr_result = _ocr_embedded_image_tesseract(processed)
             ocr_text = ""
             if ocr_result:
                 ocr_text = " ".join(item[1].strip() for item in ocr_result if item[1]).strip()
@@ -265,10 +303,6 @@ def extract(
     if not path or not path.exists():
         return []
 
-    engine = _get_rapid_engine()
-    if engine is None:
-        return []
-
     out = []
     try:
         with pdfplumber.open(path) as pdf:
@@ -281,7 +315,7 @@ def extract(
             indices = [i for i in indices if 0 <= i < total]
             for page_idx in indices:
                 page = pdf.pages[page_idx]
-                result = _process_page_imagetable(path, page_idx, page, engine)
+                result = _process_page_imagetable(path, page_idx, page)
                 out.append(result)
     except Exception:
         traceback.print_exc()
