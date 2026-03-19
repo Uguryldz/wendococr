@@ -3,15 +3,18 @@ Akıllı Karar Mekanizması (Brain).
 Gelen belgeye göre sayfa bazlı engine seçer. Ağır kütüphaneler ilk kullanımda yüklenir (hızlı startup).
 """
 from pathlib import Path
+import os
 from typing import Any
 
 from app.config import (
     ALLOWED_IMAGE_TYPES,
     ALLOWED_PDF_TYPE,
     AUTO_FORCE_RAPID_OCR,
+    AUTO_FORCE_PADDLEOCR_LOW,
     EXTRACT_MODES,
     OCR_DPI_RAPID,
     OCR_DPI_TESSERACT,
+    OCR_DPI_PADDLEOCR_LOW,
 )
 
 # Minimum metin uzunluğu: sayfa "searchable" kabul edilir
@@ -55,6 +58,8 @@ def _decide_engine_for_pdf_page(pdf_path: Path, page_index: int) -> str:
         if _page_is_table_heavy(pdf_path, page_index):
             return "pdftexttable"
         return "pdftext"
+    if AUTO_FORCE_PADDLEOCR_LOW:
+        return "pdfimagepaddleocrlow"
     return "pdfimagev5"
 
 
@@ -87,6 +92,8 @@ def process_document(
         return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers)
     if mode == "pdfimagets":
         return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagets", page_numbers=page_numbers)
+    if mode == "pdfimagepaddleocrlow":
+        return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagepaddleocrlow", page_numbers=page_numbers)
     if mode == "pdftxtimage":
         from app.engines.ocr_txtimage import extract as ocr_txtimage_extract
         raw = ocr_txtimage_extract(path, page_numbers=page_numbers)
@@ -169,12 +176,20 @@ def _run_ocr_pdf_or_image(
         indices = [i for i in indices if 0 <= i < n_pages]
         all_pages = []
         for i in indices:
-            dpi = OCR_DPI_RAPID if engine == "pdfimagev5" else OCR_DPI_TESSERACT
+            if engine == "pdfimagev5":
+                dpi = OCR_DPI_RAPID
+            elif engine == "pdfimagepaddleocrlow":
+                dpi = int(os.environ.get("OCR_DPI_PADDLEOCR_LOW", str(OCR_DPI_PADDLEOCR_LOW)))
+            else:
+                dpi = OCR_DPI_TESSERACT
             png_bytes = pdf_page_to_image(path, i, dpi=dpi)
             if png_bytes:
                 if engine == "pdfimagev5":
                     from app.engines.ocr_rapid import extract as ocr_rapid_extract
                     part = ocr_rapid_extract(path, page_numbers=[i], image_bytes=png_bytes)
+                elif engine == "pdfimagepaddleocrlow":
+                    from app.engines.ocr_paddleocr_low import extract as ocr_paddleocr_low_extract
+                    part = ocr_paddleocr_low_extract(path, page_numbers=[i], image_bytes=png_bytes)
                 else:
                     from app.engines.ocr_tesseract import extract as ocr_tesseract_extract
                     part = ocr_tesseract_extract(path, page_numbers=[i], image_bytes=png_bytes)
@@ -188,6 +203,9 @@ def _run_ocr_pdf_or_image(
     if engine == "pdfimagev5":
         from app.engines.ocr_rapid import extract as ocr_rapid_extract
         raw = ocr_rapid_extract(path, page_numbers=[0])
+    elif engine == "pdfimagepaddleocrlow":
+        from app.engines.ocr_paddleocr_low import extract as ocr_paddleocr_low_extract
+        raw = ocr_paddleocr_low_extract(path, page_numbers=[0])
     else:
         from app.engines.ocr_tesseract import extract as ocr_tesseract_extract
         raw = ocr_tesseract_extract(path, page_numbers=[0])

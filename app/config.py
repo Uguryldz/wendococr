@@ -67,4 +67,18 @@ EXT_TO_MIME = {
 }
 
 # Desteklenen mode değerleri
-EXTRACT_MODES = {"auto", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets", "pdftxtimage", "pdfimagetable"}
+EXTRACT_MODES = {"auto", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets", "pdftxtimage", "pdfimagetable", "pdfimagepaddleocrlow"}
+
+# PaddleOCR (low bellek) ayarları
+# Not: PaddleOCR bağımlılıkları Docker imajına eklenecek (requirements.txt).
+# Bu motor, büyük görsellerde RAM patlamasını önlemek için ağır doc pipeline kapalı ve input boyutu sınırlandırılır.
+AUTO_FORCE_PADDLEOCR_LOW = False
+
+OCR_DPI_PADDLEOCR_LOW = 150
+PADDLEOCR_LOW_MAX_SIDE = 1200
+PADDLEOCR_LOW_TEXT_DET_LIMIT = 1200
+PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE = "min"
+PADDLEOCR_LOW_TEXT_DET_THRESH = 0.3
+PADDLEOCR_LOW_TEXT_DET_BOX_THRESH = 0.6
+PADDLEOCR_LOW_TEXT_DET_UNCLIP_RATIO = 1.5
+PADDLEOCR_LOW_TEXT_REC_SCORE_THRESH = 0.1

@@ -9,3 +9,7 @@ pytesseract>=0.3.10
 opencv-python-headless>=4.8.0
 pydantic>=2.0.0
 ollama>=0.3.0
+
+# PaddleOCR (pdfimagepaddleocrlow motoru)
+paddleocr
+paddlepaddle

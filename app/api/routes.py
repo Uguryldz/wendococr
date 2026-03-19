@@ -249,6 +249,25 @@ async def v1_pdfimagev5(
 
 
 @router.post(
+    "/v1/pdfimagepaddleocrlow",
+    tags=["Belge çıkarımı"],
+    summary="Taranmış PDF / resim OCR (PaddleOCR low bellek)",
+)
+async def v1_pdfimagepaddleocrlow(
+    file: UploadFile = File(..., description=FILE_UPLOAD_DESC),
+    page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
+    format: str = Query("json", description="Çıktı: json veya text"),
+):
+    """
+    PaddleOCR ile taranmış PDF veya resim üzerinde OCR (low bellek profili).
+
+    **PDF veya resim** kabul edilir.
+    Amaç: Docker'da RAM patlamasını engellemek için doc preprocessor kapalı + input limitli çalışır.
+    """
+    return await _process_upload(file, "pdfimagepaddleocrlow", page_range=page_range, format=format)
+
+
+@router.post(
     "/v1/pdfimagets",
     tags=["Belge çıkarımı"],
     summary="OCR (Türkçe)",

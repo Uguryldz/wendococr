@@ -1,0 +1,295 @@
+{
+  "filename": "Kimlik.jpeg",
+  "method_used": "pdfimagev5",
+  "processing_time_sec": 50.101,
+  "pages": [
+    {
+      "page_number": 1,
+      "content": "TORKIYECUMHURIYETI KIMLIK KARTI\nREPUBLICOFTURKEYIDENTITYCARD\nrc. No/TRJdyNo\n12345678901\nKARACAMOGLU\nAb/Gven Name(6)\nOMER SELIM\nDopum Tarhl/Date Oof Berh\nOnsiyet/ Gender\n15.10.1956\nE/M\nSerl No/Document No\nU24259\nUruu/Nationality\nM00A59153\nT.C./TUR\nSon Ge\n/VeldUnel\n17.08.2024\nTORKIYECUMHURIYETKIMLKKARTI\nREPUSUICOF TURXEYIDENTITYCARD\n123456\nAnne Ad/Mother's Name\nAYSEGUL\nBaba Ads/ Father's Name\nHUDAVERDI\nVeren Makam/Issuing Authory\nICISLERI BAKANLIGI\nI<TURM00A591533<<<<<<<<<<<<<<<\n5610152M24081472TUR<<<<<<<<<<2\nKARACAMOGLU<<OMERSELIM<<<<<<<<",
+      "text_blocks": [
+        {
+          "text": "TORKIYECUMHURIYETI KIMLIK KARTI",
+          "bbox": {
+            "x0": 75.0,
+            "y0": 7.0,
+            "x1": 400.0,
+            "y1": 38.0
+          }
+        },
+        {
+          "text": "REPUBLICOFTURKEYIDENTITYCARD",
+          "bbox": {
+            "x0": 121.0,
+            "y0": 29.0,
+            "x1": 353.0,
+            "y1": 50.0
+          }
+        },
+        {
+          "text": "rc. No/TRJdyNo",
+          "bbox": {
+            "x0": 28.0,
+            "y0": 63.0,
+            "x1": 145.0,
+            "y1": 76.0
+          }
+        },
+        {
+          "text": "12345678901",
+          "bbox": {
+            "x0": 34.0,
+            "y0": 74.0,
+            "x1": 140.0,
+            "y1": 94.0
+          }
+        },
+        {
+          "text": "KARACAMOGLU",
+          "bbox": {
+            "x0": 163.0,
+            "y0": 102.0,
+            "x1": 275.0,
+            "y1": 125.0
+          }
+        },
+        {
+          "text": "Ab/Gven Name(6)",
+          "bbox": {
+            "x0": 165.0,
+            "y0": 121.0,
+            "x1": 247.0,
+            "y1": 138.0
+          }
+        },
+        {
+          "text": "OMER SELIM",
+          "bbox": {
+            "x0": 164.0,
+            "y0": 133.0,
+            "x1": 258.0,
+            "y1": 156.0
+          }
+        },
+        {
+          "text": "Dopum Tarhl/Date Oof Berh",
+          "bbox": {
+            "x0": 164.0,
+            "y0": 152.0,
+            "x1": 280.0,
+            "y1": 170.0
+          }
+        },
+        {
+          "text": "Onsiyet/ Gender",
+          "bbox": {
+            "x0": 293.0,
+            "y0": 153.0,
+            "x1": 366.0,
+            "y1": 172.0
+          }
+        },
+        {
+          "text": "15.10.1956",
+          "bbox": {
+            "x0": 164.0,
+            "y0": 166.0,
+            "x1": 246.0,
+            "y1": 186.0
+          }
+        },
+        {
+          "text": "E/M",
+          "bbox": {
+            "x0": 290.0,
+            "y0": 167.0,
+            "x1": 326.0,
+            "y1": 190.0
+          }
+        },
+        {
+          "text": "Serl No/Document No",
+          "bbox": {
+            "x0": 165.0,
+            "y0": 183.0,
+            "x1": 258.0,
+            "y1": 199.0
+          }
+        },
+        {
+          "text": "U24259",
+          "bbox": {
+            "x0": 387.0,
+            "y0": 174.0,
+            "x1": 439.0,
+            "y1": 196.0
+          }
+        },
+        {
+          "text": "Uruu/Nationality",
+          "bbox": {
+            "x0": 294.0,
+            "y0": 187.0,
+            "x1": 379.0,
+            "y1": 201.0
+          }
+        },
+        {
+          "text": "M00A59153",
+          "bbox": {
+            "x0": 165.0,
+            "y0": 197.0,
+            "x1": 249.0,
+            "y1": 216.0
+          }
+        },
+        {
+          "text": "T.C./TUR",
+          "bbox": {
+            "x0": 293.0,
+            "y0": 200.0,
+            "x1": 358.0,
+            "y1": 217.0
+          }
+        },
+        {
+          "text": "Son Ge",
+          "bbox": {
+            "x0": 168.0,
+            "y0": 217.0,
+            "x1": 195.0,
+            "y1": 228.0
+          }
+        },
+        {
+          "text": "/VeldUnel",
+          "bbox": {
+            "x0": 215.0,
+            "y0": 218.0,
+            "x1": 267.0,
+            "y1": 229.0
+          }
+        },
+        {
+          "text": "17.08.2024",
+          "bbox": {
+            "x0": 167.0,
+            "y0": 229.0,
+            "x1": 245.0,
+            "y1": 247.0
+          }
+        },
+        {
+          "text": "TORKIYECUMHURIYETKIMLKKARTI",
+          "bbox": {
+            "x0": 30.0,
+            "y0": 369.0,
+            "x1": 180.0,
+            "y1": 384.0
+          }
+        },
+        {
+          "text": "REPUSUICOF TURXEYIDENTITYCARD",
+          "bbox": {
+            "x0": 29.0,
+            "y0": 380.0,
+            "x1": 162.0,
+            "y1": 393.0
+          }
+        },
+        {
+          "text": "123456",
+          "bbox": {
+            "x0": 448.0,
+            "y0": 388.0,
+            "x1": 470.0,
+            "y1": 439.0
+          }
+        },
+        {
+          "text": "Anne Ad/Mother's Name",
+          "bbox": {
+            "x0": 135.0,
+            "y0": 409.0,
+            "x1": 238.0,
+            "y1": 422.0
+          }
+        },
+        {
+          "text": "AYSEGUL",
+          "bbox": {
+            "x0": 133.0,
+            "y0": 421.0,
+            "x1": 203.0,
+            "y1": 442.0
+          }
+        },
+        {
+          "text": "Baba Ads/ Father's Name",
+          "bbox": {
+            "x0": 135.0,
+            "y0": 440.0,
+            "x1": 235.0,
+            "y1": 453.0
+          }
+        },
+        {
+          "text": "HUDAVERDI",
+          "bbox": {
+            "x0": 135.0,
+            "y0": 453.0,
+            "x1": 223.0,
+            "y1": 471.0
+          }
+        },
+        {
+          "text": "Veren Makam/Issuing Authory",
+          "bbox": {
+            "x0": 136.0,
+            "y0": 472.0,
+            "x1": 262.0,
+            "y1": 485.0
+          }
+        },
+        {
+          "text": "ICISLERI BAKANLIGI",
+          "bbox": {
+            "x0": 134.0,
+            "y0": 482.0,
+            "x1": 282.0,
+            "y1": 505.0
+          }
+        },
+        {
+          "text": "I<TURM00A591533<<<<<<<<<<<<<<<",
+          "bbox": {
+            "x0": 32.0,
+            "y0": 540.0,
+            "x1": 450.0,
+            "y1": 557.0
+          }
+        },
+        {
+          "text": "5610152M24081472TUR<<<<<<<<<<2",
+          "bbox": {
+            "x0": 31.0,
+            "y0": 565.0,
+            "x1": 451.0,
+            "y1": 585.0
+          }
+        },
+        {
+          "text": "KARACAMOGLU<<OMERSELIM<<<<<<<<",
+          "bbox": {
+            "x0": 32.0,
+            "y0": 595.0,
+            "x1": 451.0,
+            "y1": 612.0
+          }
+        }
+      ],
+      "tables": [],
+      "page_width": 478.0,
+      "page_height": 641.0
+    }
+  ]
+}
