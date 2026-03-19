@@ -1,26 +1,47 @@
-"""Uygulama ayarları."""
-import os
+"""Uygulama ayarları (sabit değerler, .env kullanılmaz)."""
 from pathlib import Path
 
-# Geçici dosyalar (mkdir ilk upload'ta da denenebilir; startup bloklamaz)
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/tmp/wendococr"))
+# Geçici dosyalar
+UPLOAD_DIR = Path("/tmp/wendococr")
 try:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 except OSError:
     pass
 
-# Limitler (DEV_NOTES ile uyumlu)
-MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
+# Limitler
+MAX_FILE_SIZE_MB = 50
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-MAX_PAGES = int(os.getenv("MAX_PAGES", "500"))
+MAX_PAGES = 500
+
+# OCR ayarları
+# PDF -> görüntü DPI: yükseldikçe kalite artar, hız düşer.
+OCR_DPI_RAPID = 150
+OCR_DPI_TESSERACT = 200
+
+# RapidOCR ayarları (daha katı çıkarım için)
+RAPIDOCR_DET_LIMIT_SIDE_LEN = 960
+RAPIDOCR_TEXT_SCORE = 0.40
+RAPIDOCR_MIN_TOKEN_LEN = 1
+RAPIDOCR_MIN_CONFIDENCE = 0.35
+RAPIDOCR_MIN_BOX_AREA = 8.0
+
+# RapidOCR ön işleme seçenekleri
+RAPIDOCR_THRESHOLD = False
+RAPIDOCR_ENHANCE = True
+
+# Tesseract (Türkçe) ayarları
+TESSERACT_PSM = "3"  # 3: auto, 6: block text
+TESSERACT_DESKEW = False
+TESSERACT_THRESHOLD = False
+TESSERACT_ENHANCE = True
+TESSERACT_USER_DEFINED_DPI = "300"
 
 # Logging
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
+LOG_LEVEL = "INFO"
+DEBUG = False
 
-# CORS: virgülle ayrılmış origin listesi; "*" = tümü
-_cors_raw = os.getenv("CORS_ORIGINS", "*")
-CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw != "*" else ["*"]
+# CORS
+CORS_ORIGINS = ["*"]
 
 # İzin verilen MIME / uzantılar
 ALLOWED_IMAGE_TYPES = {

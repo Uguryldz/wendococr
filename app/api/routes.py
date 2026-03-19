@@ -130,10 +130,14 @@ async def _process_upload(
 
 
 def _check_tesseract() -> bool:
-    """Tesseract kurulu mu?"""
+    """Tesseract ve tur dili kurulu mu?"""
     try:
         import pytesseract
         pytesseract.get_tesseract_version()
+        # tur traineddata var mı?
+        langs = set(pytesseract.get_languages(config=""))
+        if "tur" not in langs:
+            return False
         return True
     except Exception:
         return False
@@ -257,6 +261,7 @@ async def v1_pdfimagets(
     """
     Türkçe OCR (Tesseract). **PDF veya resim** kabul edilir.
     Resim: JPEG, PNG, BMP, WEBP, TIFF, TIF, GIF, PBM, PGM, PPM.
+    **Kilitli endpoint** — Tesseract Türkçe için ayarlı, değiştirmeyin.
     **Kütüphaneler:** pytesseract>=0.3.10, pymupdf>=1.23.0 (PDF→görüntü), opencv-python-headless>=4.8.0, tesseract-ocr-tur (sistem). Motor: app.engines.ocr_tesseract.
     """
     return await _process_upload(file, "pdfimagets", page_range=page_range, format=format)

@@ -1,8 +1,24 @@
+"""
+pdfimagev5 motoru: RapidOCR ile hızlı OCR (Türkçe iyileştirme + gürültü filtreleme).
+
+KİLİTLİ: Bu modül mevcut ayarlarla stabil; sonraki işlemlerde müdahale etmeyin.
+"""
 import cv2
 import numpy as np
 from pathlib import Path
 from typing import Any
 from rapidocr_onnxruntime import RapidOCR
+import re
+
+from app.config import (
+    RAPIDOCR_DET_LIMIT_SIDE_LEN,
+    RAPIDOCR_ENHANCE,
+    RAPIDOCR_MIN_BOX_AREA,
+    RAPIDOCR_MIN_CONFIDENCE,
+    RAPIDOCR_MIN_TOKEN_LEN,
+    RAPIDOCR_THRESHOLD,
+    RAPIDOCR_TEXT_SCORE,
+)
 
 # Gerekli yardımcı fonksiyonları projenden alıyoruz
 # Eğer preprocess_image hala yavaşsa, aşağıda nasıl devre dışı bırakacağını belirttim.
@@ -23,12 +39,41 @@ def _get_rapid_engine():
             # det_limit_side_len: taranmış sayfa boyutu (960 hız/kalite dengesi)
             # text_score: 0.4 — Türkçe/Latin karakterlerde daha toleranslı tanıma
             _rapid_engine = RapidOCR(
-                det_limit_side_len=960,
-                text_score=0.4,
+                det_limit_side_len=RAPIDOCR_DET_LIMIT_SIDE_LEN,
+                text_score=RAPIDOCR_TEXT_SCORE,
             )
         except Exception:
             pass
     return _rapid_engine
+
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _enhance_for_turkish_rapid(gray: np.ndarray) -> np.ndarray:
+    """
+    Türkçe diakritiklerini koruyacak hafif iyileştirme.
+    - Küçük metinlerde upscale
+    - CLAHE ile lokal kontrast artırma
+    """
+    if gray is None or gray.size == 0:
+        return gray
+    h, w = gray.shape[:2]
+    out = gray
+    if max(h, w) < 1400:
+        out = cv2.resize(out, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
+    try:
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        out = clahe.apply(out)
+    except Exception:
+        pass
+    return out
+
+
+def _clean_text(text: str) -> str:
+    """OCR metnini katı filtre için normalize eder."""
+    text = _WHITESPACE_RE.sub(" ", (text or "").strip())
+    return text
 
 def _run_rapidocr(
     image_bytes: bytes | None = None,
@@ -59,11 +104,24 @@ def _run_rapidocr(
     # Eğer hala yavaşsa: grayscale=False, threshold=False yaparak dene.
     # Yüksek çözünürlükte threshold işlemi CPU'yu çok yorar.
     if max(h, w) > 2000:
-        # Çok büyük resimlerde ön işlemeyi sadece basit gri tonlamaya indiriyoruz
+        # Çok büyük resimlerde threshold açmak detay kaybı yapabilir.
         if len(img.shape) == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if RAPIDOCR_ENHANCE:
+            img = _enhance_for_turkish_rapid(img)
     else:
-        img = preprocess_image(img, grayscale=True, threshold=True, deskew=False)
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+        if RAPIDOCR_ENHANCE:
+            gray = _enhance_for_turkish_rapid(gray)
+        img = preprocess_image(
+            cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR),
+            grayscale=True,
+            threshold=RAPIDOCR_THRESHOLD,
+            deskew=False,
+        )
 
     # RapidOCR 3 kanal (BGR) beklediği için gerekirse dönüştür
     if len(img.shape) == 2:
@@ -76,18 +134,30 @@ def _run_rapidocr(
     if not result:
         return [], w, h
 
-    # 4. Koordinatları Topla (NumPy ile hızlandırılmış)
+    # 4. Koordinatları topla + katı filtre uygula
     out = []
     for line in result:
+        if len(line) < 2:
+            continue
         box, text = line[0], line[1]
+        score = float(line[2]) if len(line) > 2 and line[2] is not None else None
+
+        text = _clean_text(text)
         if not text:
             continue
-        
+        if len(text) < RAPIDOCR_MIN_TOKEN_LEN and not any(ch.isdigit() for ch in text):
+            continue
+        if score is not None and score < RAPIDOCR_MIN_CONFIDENCE:
+            continue
+
         # Bbox: [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
         box_arr = np.array(box)
         x_min, y_min = np.min(box_arr, axis=0)
         x_max, y_max = np.max(box_arr, axis=0)
-        
+        area = max(0.0, float(x_max - x_min)) * max(0.0, float(y_max - y_min))
+        if area < RAPIDOCR_MIN_BOX_AREA:
+            continue
+
         bbox = [float(x_min), float(y_min), float(x_max), float(y_max)]
         out.append((bbox, text))
 

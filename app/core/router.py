@@ -5,7 +5,13 @@ Gelen belgeye göre sayfa bazlı engine seçer. Ağır kütüphaneler ilk kullan
 from pathlib import Path
 from typing import Any
 
-from app.config import ALLOWED_IMAGE_TYPES, ALLOWED_PDF_TYPE, EXTRACT_MODES
+from app.config import (
+    ALLOWED_IMAGE_TYPES,
+    ALLOWED_PDF_TYPE,
+    EXTRACT_MODES,
+    OCR_DPI_RAPID,
+    OCR_DPI_TESSERACT,
+)
 
 # Minimum metin uzunluğu: sayfa "searchable" kabul edilir
 MIN_TEXT_LENGTH_SEARCHABLE = 20
@@ -126,7 +132,7 @@ def process_document(
         elif engine == "pdftexttable":
             part = pdf_table_extract(path, page_numbers=[i])
         else:
-            png_bytes = pdf_page_to_image(path, i, dpi=150)
+            png_bytes = pdf_page_to_image(path, i, dpi=OCR_DPI_RAPID)
             if png_bytes:
                 part = ocr_rapid_extract(path, page_numbers=[i], image_bytes=png_bytes)
             else:
@@ -158,7 +164,8 @@ def _run_ocr_pdf_or_image(
         indices = [i for i in indices if 0 <= i < n_pages]
         all_pages = []
         for i in indices:
-            png_bytes = pdf_page_to_image(path, i, dpi=150)
+            dpi = OCR_DPI_RAPID if engine == "pdfimagev5" else OCR_DPI_TESSERACT
+            png_bytes = pdf_page_to_image(path, i, dpi=dpi)
             if png_bytes:
                 if engine == "pdfimagev5":
                     from app.engines.ocr_rapid import extract as ocr_rapid_extract

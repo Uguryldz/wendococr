@@ -128,22 +128,15 @@
      */
     function pageToGridText(page, charWidth, lineHeight, yThreshold) {
       const items = []; // { y, x, text }
+      const tableBoxes = []; // dedupe için tablo/hücre bbox'ları
 
-      // Metin blokları
-      const textBlocks = page.text_blocks || [];
-      for (const blk of textBlocks) {
-        const b = parseBbox(blk.bbox);
-        if (!b) continue;
-        const text = (blk.text != null ? String(blk.text) : '').replace(/\r\n/g, '\n').trim();
-        if (!text) continue;
-        items.push({ y: b.y0, x: b.x0, text: text });
-      }
-
-      // Tablolar: her hücreyi (y, x, metin) olarak ekle
+      // 1) Tablolar: her hücreyi (y, x, metin) olarak ekle
       const tables = page.tables || [];
       for (const tbl of tables) {
         const rows = tbl.rows || [];
         const cellsBbox = tbl.cells_bbox || null;
+        const tb = parseBbox(tbl.bbox);
+        if (tb) tableBoxes.push(tb);
         for (let ri = 0; ri < rows.length; ri++) {
           const row = rows[ri];
           const cells = Array.isArray(row) ? row : [row];
@@ -152,9 +145,11 @@
             let y = 0, x = 0;
             if (cellsBbox && cellsBbox[ri] && cellsBbox[ri][ci]) {
               const cb = parseBbox(cellsBbox[ri][ci]);
-              if (cb) { y = cb.y0; x = cb.x0; }
+              if (cb) {
+                y = cb.y0; x = cb.x0;
+                tableBoxes.push(cb);
+              }
             } else {
-              const tb = parseBbox(tbl.bbox);
               if (tb) {
                 const rowH = (tb.y1 - tb.y0) / Math.max(1, rows.length);
                 const colW = (tb.x1 - tb.x0) / Math.max(1, cells.length);
@@ -165,6 +160,27 @@
             if (cellText) items.push({ y, x, text: cellText });
           }
         }
+      }
+
+      // 2) Metin blokları: tablo hücreleriyle çakışanları at (double yazımı önle)
+      const textBlocks = page.text_blocks || [];
+      function overlapRatio(inner, outer) {
+        const xi = Math.max(inner.x0, outer.x0);
+        const yi = Math.max(inner.y0, outer.y0);
+        const xj = Math.min(inner.x1, outer.x1);
+        const yj = Math.min(inner.y1, outer.y1);
+        if (xj <= xi || yj <= yi) return 0;
+        const aInner = Math.max(1, (inner.x1 - inner.x0) * (inner.y1 - inner.y0));
+        return ((xj - xi) * (yj - yi)) / aInner;
+      }
+      for (const blk of textBlocks) {
+        const b = parseBbox(blk.bbox);
+        if (!b) continue;
+        const text = (blk.text != null ? String(blk.text) : '').replace(/\r\n/g, '\n').trim();
+        if (!text) continue;
+        const isInsideTable = tableBoxes.some(tb => overlapRatio(b, tb) >= 0.5);
+        if (isInsideTable) continue;
+        items.push({ y: b.y0, x: b.x0, text: text });
       }
 
       if (items.length === 0) return '';
@@ -219,6 +235,87 @@
       return lines.join('\n');
     }
 
+    function clamp(n, minV, maxV) {
+      return Math.max(minV, Math.min(maxV, n));
+    }
+
+    function median(arr) {
+      if (!Array.isArray(arr) || arr.length === 0) return null;
+      const a = arr.slice().sort((x, y) => x - y);
+      const mid = Math.floor(a.length / 2);
+      return (a.length % 2 === 0) ? (a[mid - 1] + a[mid]) / 2 : a[mid];
+    }
+
+    /**
+     * Otomatik charWidth/yThreshold hesabı:
+     * - charWidth: her item için (bbox genişliği / metin uzunluğu) medyanı
+     * - yThreshold: bbox yüksekliği (y1-y0) medyanından satır toleransı
+     *
+     * Not: pageToGridText zaten tables hücre bbox’larını kullanıyor; burada da aynı
+     * kaynakları kullanıyoruz (infer_source=include_tables).
+     */
+    function autoEstimateParams(page) {
+      const textBlocks = page.text_blocks || [];
+      const tables = page.tables || [];
+
+      const charWidthCandidates = [];
+      const heightCandidates = [];
+
+      // 1) text_blocks
+      for (const blk of textBlocks) {
+        const b = parseBbox(blk.bbox);
+        if (!b) continue;
+        const text = (blk.text != null ? String(blk.text) : '').replace(/\r\n/g, '\n').trim();
+        if (!text || text.length < 2) continue;
+        const w = Math.max(0, (b.x1 - b.x0));
+        const h = Math.max(0, (b.y1 - b.y0));
+        if (w <= 0 || h <= 0) continue;
+        const cw = w / text.length;
+        // Outlier filtre (pt ölçeğinde)
+        if (cw >= 0.5 && cw <= 50) charWidthCandidates.push(cw);
+        heightCandidates.push(h);
+      }
+
+      // 2) tables: hücre bbox’ları
+      for (const tbl of tables) {
+        const rows = tbl.rows || [];
+        const cellsBbox = tbl.cells_bbox || null;
+        for (let ri = 0; ri < rows.length; ri++) {
+          const row = rows[ri];
+          const cells = Array.isArray(row) ? row : [row];
+          for (let ci = 0; ci < cells.length; ci++) {
+            const cellText = String(cells[ci] ?? '').trim();
+            if (!cellText || cellText.length < 2) continue;
+            let b = null;
+            if (cellsBbox && cellsBbox[ri] && cellsBbox[ri][ci]) {
+              b = parseBbox(cellsBbox[ri][ci]);
+            } else {
+              b = parseBbox(tbl.bbox);
+            }
+            if (!b) continue;
+            const w = Math.max(0, (b.x1 - b.x0));
+            const h = Math.max(0, (b.y1 - b.y0));
+            if (w <= 0 || h <= 0) continue;
+            const cw = w / cellText.length;
+            if (cw >= 0.5 && cw <= 50) charWidthCandidates.push(cw);
+            heightCandidates.push(h);
+          }
+        }
+      }
+
+      // Fallback: manuel inputlar (boş veri varsa)
+      const manualCharWidth = Number(document.getElementById('paramCharWidth').value) || 10;
+      const manualYThreshold = Number(document.getElementById('paramYThreshold').value) || 4;
+
+      const cwMed = median(charWidthCandidates);
+      const hMed = median(heightCandidates);
+
+      const charWidth = clamp(Math.round(cwMed ?? manualCharWidth), 4, 24);
+      const yThreshold = clamp(Math.round((hMed ?? (manualYThreshold)) * 0.30), 1, 20);
+
+      return { charWidth, yThreshold };
+    }
+
     function render() {
       const raw = jsonInput.value.trim();
       outputWrap.classList.remove('empty');
@@ -243,14 +340,17 @@
         return;
       }
 
-      const charWidth = Math.max(4, Math.min(20, Number(document.getElementById('paramCharWidth').value) || 8));
+      // lineHeight şu an pageToGridText içinde kullanılmıyor, ama UI'da kalsın.
       const lineHeight = Math.max(6, Math.min(30, Number(document.getElementById('paramLineHeight').value) || 12));
-      const yThreshold = Math.max(1, Math.min(20, Number(document.getElementById('paramYThreshold').value) || 6));
 
       const pageTexts = [];
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
-        const txt = pageToGridText(page, charWidth, lineHeight, yThreshold);
+        const estimated = autoEstimateParams(page);
+        // Görünürlük için input değerlerini güncelle
+        document.getElementById('paramCharWidth').value = estimated.charWidth;
+        document.getElementById('paramYThreshold').value = estimated.yThreshold;
+        const txt = pageToGridText(page, estimated.charWidth, lineHeight, estimated.yThreshold);
         if (pages.length > 1) {
           pageTexts.push('——— Sayfa ' + (page.page_number ?? i + 1) + ' ———');
           pageTexts.push(txt);
