@@ -1,0 +1,79 @@
+{
+  "filename": "sil.png",
+  "method_used": "easyocr",
+  "processing_time_sec": 31.251,
+  "pages": [
+    {
+      "page_number": 1,
+      "content": "Kiedtkd\nQuhT FEKTRONK VTTik\nSaaticas\nFondonboru Hch. Antanatad [st\nMrtAL} ISTAnBA / Tutye\nDhob\nMd Dued\nKakTAL\nM\nmSSR\nMNfska\nWRITsHOW\nTlesdn\n05e5J\nAh\n+am\nHARUN YIDDIA\nBzlkjtrm Ke\nIRL}\nHAPUNYMPIRI\ntuure\nERSIVFATURA\nPtaTW\nSATS\n[akTAL / IStAHBU /\nHak\nsytmonnss\nBaoh\nAyunyltrimogmLço\nhuratwe\n8-W-Dw\n5450151\nHhssd\nP,9,0\nToN\nS1K9361\nETTM: JBalAzdf-JsaF-4182-Abb\nMtne { Hhans\nMhrma / Hloe\nMban\nHtnek Koda\nKth\nBlm Hyx\nMDv Orsa\nIDYTun\nAsklee\nSN:\nxon Abct YaruumXI+ Whle\n5MS BFACXF (So11D\nAda\n19a9s8 TL <ml\n39791It\n1aso1\nSN:\nXoI Abdt YarumXIN+Whle\n5AS BFAÇWFR951909\nAda\n1985,80TL *m0\n197911\n2S0o1\nHHlanet Topkm Tur\n4.590 1\nIMsushv (Xj:\nan1Es 1\nverg] Hat Iur\n383466 1\nHsapuangn KDV (*mJ:\n1844 1\nHagl Dshl Toplam Tubxr\n4.700 1\n@danerd Tur\n8.7a0 1L\nYıheKrk Yedf B Yedl YrEB\nGandacalmly\nYM: SAFBFACXFSSQIZ9; SA\nboytyahose",
+      "text_blocks": [
+        {
+          "text": "KakTAL",
+          "bbox": {
+            "x0": 134.0,
+            "y0": 103.0,
+            "x1": 175.0,
+            "y1": 117.0
+          }
+        },
+        {
+          "text": "IRL}",
+          "bbox": {
+            "x0": 593.0,
+            "y0": 268.0,
+            "x1": 622.0,
+            "y1": 281.0
+          }
+        },
+        {
+          "text": "SATS",
+          "bbox": {
+            "x0": 591.0,
+            "y0": 297.0,
+            "x1": 625.0,
+            "y1": 311.0
+          }
+        },
+        {
+          "text": "SN:",
+          "bbox": {
+            "x0": 299.0,
+            "y0": 421.0,
+            "x1": 323.0,
+            "y1": 433.0
+          }
+        },
+        {
+          "text": "Ada",
+          "bbox": {
+            "x0": 423.0,
+            "y0": 427.0,
+            "x1": 449.0,
+            "y1": 441.0
+          }
+        },
+        {
+          "text": "SN:",
+          "bbox": {
+            "x0": 299.0,
+            "y0": 448.0,
+            "x1": 323.0,
+            "y1": 461.0
+          }
+        },
+        {
+          "text": "Ada",
+          "bbox": {
+            "x0": 423.0,
+            "y0": 454.0,
+            "x1": 449.0,
+            "y1": 468.0
+          }
+        }
+      ],
+      "tables": [],
+      "page_width": null,
+      "page_height": null
+    }
+  ]
+}
