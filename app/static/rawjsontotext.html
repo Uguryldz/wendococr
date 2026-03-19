@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Raw JSON ve Konum Metni | wendococr</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #f6f7fb; color: #222; }
+    .layout { display: flex; flex-direction: column; height: 100vh; }
+    .toolbar {
+      display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+      background: #fff; border-bottom: 1px solid #e3e6ef;
+    }
+    .title { font-size: 14px; font-weight: 700; margin-right: auto; }
+    button {
+      border: 1px solid #ccd3e0; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer;
+      font-size: 12px;
+    }
+    button:hover { background: #f2f5fb; }
+    .panes { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 8px; }
+    .pane {
+      min-height: 0; background: #fff; border: 1px solid #e3e6ef; border-radius: 10px; display: flex; flex-direction: column; overflow: hidden;
+    }
+    .pane-header {
+      padding: 10px 12px; border-bottom: 1px solid #eef1f7; font-size: 13px; font-weight: 700;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .pane-body { flex: 1; min-height: 0; display: flex; }
+    textarea {
+      width: 100%; height: 100%; border: none; resize: none; padding: 12px; outline: none;
+      font-family: Consolas, Monaco, monospace; font-size: 12px; line-height: 1.45;
+    }
+    #rawContentOutput, #positionTextOutput { background: #fafbfd; }
+    .info { font-size: 11px; color: #63708c; font-weight: 500; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="toolbar">
+      <div class="title">Raw JSON ve Konum Metni Görüntüleyici</div>
+      <button type="button" id="btnSample">Sample</button>
+      <button type="button" id="btnUpload">JSON Yükle</button>
+      <input type="file" id="fileUpload" accept=".json,application/json" hidden>
+    </div>
+    <div class="panes">
+      <div class="pane">
+        <div class="pane-header">
+          <span>Giriş JSON</span>
+          <span class="info">wendococr API çıktısı</span>
+        </div>
+        <div class="pane-body">
+          <textarea id="jsonInput" placeholder="JSON yapıştır..."></textarea>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-header">
+          <span>Raw Content (ham)</span>
+          <span class="info">`pages[].content` birleşik görünüm</span>
+        </div>
+        <div class="pane-body">
+          <textarea id="rawContentOutput" readonly placeholder="Ham content burada görünecek"></textarea>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-header">
+          <span>Konuma Göre Metin</span>
+          <span class="info">`text_blocks` y/x sıralı</span>
+        </div>
+        <div class="pane-body">
+          <textarea id="positionTextOutput" readonly placeholder="Konuma göre metin burada görünecek"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const jsonInput = document.getElementById("jsonInput");
+    const rawContentOutput = document.getElementById("rawContentOutput");
+    const positionTextOutput = document.getElementById("positionTextOutput");
+    const fileUpload = document.getElementById("fileUpload");
+
+    function parseBbox(bbox) {
+      if (!bbox) return null;
+      if (Array.isArray(bbox) && bbox.length >= 4) {
+        return { x0: Number(bbox[0]), y0: Number(bbox[1]), x1: Number(bbox[2]), y1: Number(bbox[3]) };
+      }
+      if (typeof bbox === "object") {
+        return {
+          x0: Number(bbox.x0 ?? bbox[0] ?? 0),
+          y0: Number(bbox.y0 ?? bbox.top ?? bbox[1] ?? 0),
+          x1: Number(bbox.x1 ?? bbox[2] ?? 0),
+          y1: Number(bbox.y1 ?? bbox.bottom ?? bbox[3] ?? 0),
+        };
+      }
+      return null;
+    }
+
+    function normalizeText(value) {
+      return String(value ?? "").replace(/\r\n/g, "\n").trim();
+    }
+
+    function rawContentFromPages(pages) {
+      const chunks = [];
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i] || {};
+        const pageNo = page.page_number ?? (i + 1);
+        const content = normalizeText(page.content || "");
+        chunks.push("----- Sayfa " + pageNo + " (Raw Content) -----");
+        chunks.push(content || "(boş)");
+      }
+      return chunks.join("\n\n");
+    }
+
+    function positionTextFromPage(page) {
+      const blocks = Array.isArray(page.text_blocks) ? page.text_blocks : [];
+      const items = [];
+      for (const block of blocks) {
+        const b = parseBbox(block.bbox);
+        const text = normalizeText(block.text || "");
+        if (!b || !text) continue;
+        items.push({ x: b.x0, y: b.y0, text });
+      }
+      items.sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y));
+      return items.map((it) => it.text).join("\n");
+    }
+
+    function positionTextFromPages(pages) {
+      const chunks = [];
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i] || {};
+        const pageNo = page.page_number ?? (i + 1);
+        chunks.push("----- Sayfa " + pageNo + " (Konuma Göre) -----");
+        chunks.push(positionTextFromPage(page) || "(boş)");
+      }
+      return chunks.join("\n\n");
+    }
+
+    function render() {
+      const raw = jsonInput.value.trim();
+      if (!raw) {
+        rawContentOutput.value = "";
+        positionTextOutput.value = "";
+        return;
+      }
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (err) {
+        const msg = "Geçersiz JSON: " + err.message;
+        rawContentOutput.value = msg;
+        positionTextOutput.value = msg;
+        return;
+      }
+      const pages = Array.isArray(data.pages) ? data.pages : [];
+      if (!pages.length) {
+        rawContentOutput.value = "\"pages\" bulunamadı veya boş.";
+        positionTextOutput.value = "\"pages\" bulunamadı veya boş.";
+        return;
+      }
+      rawContentOutput.value = rawContentFromPages(pages);
+      positionTextOutput.value = positionTextFromPages(pages);
+    }
+
+    document.getElementById("btnUpload").onclick = () => fileUpload.click();
+    fileUpload.onchange = () => {
+      const f = fileUpload.files && fileUpload.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        jsonInput.value = String(reader.result || "");
+        render();
+      };
+      reader.readAsText(f);
+      fileUpload.value = "";
+    };
+
+    document.getElementById("btnSample").onclick = () => {
+      const sample = {
+        filename: "ornek.png",
+        method_used: "pdfimagets",
+        pages: [
+          {
+            page_number: 1,
+            content: "Gurses Nakil Vasitalari\nTelefon: (0212) 429 63 73",
+            text_blocks: [
+              { text: "Gurses Nakil Vasitalari", bbox: [60, 80, 260, 105] },
+              { text: "Telefon: (0212) 429 63 73", bbox: [60, 120, 300, 145] }
+            ]
+          }
+        ]
+      };
+      jsonInput.value = JSON.stringify(sample, null, 2);
+      render();
+    };
+
+    jsonInput.addEventListener("input", render);
+    jsonInput.addEventListener("paste", () => setTimeout(render, 0));
+  </script>
+</body>
+</html>

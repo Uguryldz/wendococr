@@ -17,6 +17,7 @@ MAX_PAGES = 500
 # PDF -> görüntü DPI: yükseldikçe kalite artar, hız düşer.
 OCR_DPI_RAPID = 150
 OCR_DPI_TESSERACT = 200
+AUTO_FORCE_RAPID_OCR = True
 
 # RapidOCR ayarları (daha katı çıkarım için)
 RAPIDOCR_DET_LIMIT_SIDE_LEN = 960

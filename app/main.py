@@ -62,7 +62,13 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/")
 def root():
-    return {"service": "wendococr", "docs": "/docs", "health": "/health", "jsontotext": "/jsontotext"}
+    return {
+        "service": "wendococr",
+        "docs": "/docs",
+        "health": "/health",
+        "jsontotext": "/jsontotext",
+        "rawjsontotext": "/rawjsontotext",
+    }
 
 
 @app.get("/jsontotext", include_in_schema=False)
@@ -71,4 +77,13 @@ def jsontotext_page():
     path = STATIC_DIR / "jsontotext.html"
     if not path.exists():
         return {"detail": "jsontotext.html not found"}
+    return FileResponse(path, media_type="text/html")
+
+
+@app.get("/rawjsontotext", include_in_schema=False)
+def rawjsontotext_page():
+    """JSON içeriğini ham ve konuma göre metin olarak ayrı panellerde gösteren sayfa."""
+    path = STATIC_DIR / "rawjsontotext.html"
+    if not path.exists():
+        return {"detail": "rawjsontotext.html not found"}
     return FileResponse(path, media_type="text/html")

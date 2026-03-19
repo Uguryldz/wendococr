@@ -8,6 +8,7 @@ from typing import Any
 from app.config import (
     ALLOWED_IMAGE_TYPES,
     ALLOWED_PDF_TYPE,
+    AUTO_FORCE_RAPID_OCR,
     EXTRACT_MODES,
     OCR_DPI_RAPID,
     OCR_DPI_TESSERACT,
@@ -105,6 +106,10 @@ def process_document(
             content_type = ALLOWED_PDF_TYPE
         else:
             return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers or [0])
+
+    # AUTO_FORCE_RAPID_OCR aktifse PDF tarafında da direkt RapidOCR kullan.
+    if AUTO_FORCE_RAPID_OCR:
+        return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers)
 
     # PDF auto: sayfa bazlı karar (pdf_convert ve engines ilk kullanımda yüklenir)
     from app.utils.pdf_convert import pdf_page_count, pdf_page_to_image
