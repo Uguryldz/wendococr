@@ -23,5 +23,15 @@ services:
     volumes:
       - wendococr_uploads:/tmp/wendococr
 
+    ## Kaynak Yönetimi buradan yapılacak ##
+    deploy:
+      resources:
+        limits:
+          cpus: '8.0'
+          memory: 16G
+        reservations:
+          cpus: '4.0'
+          memory: 8G
+
 volumes:
   wendococr_uploads:
