@@ -1,0 +1,27 @@
+services:
+  wendococr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PRELOAD_PADDLE_MODELS: "1"
+    image: uguryldz/wendococr:v1.0.0
+    container_name: wendococr
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    environment:
+      # Genel
+      UPLOAD_DIR: /tmp/wendococr
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      FLAGS_use_mkldnn: "0"
+      # Low PaddleOCR ayarlari (RAM korumali)
+      OCR_DPI_PADDLEOCR_LOW: "150"
+      PADDLEOCR_LOW_MAX_SIDE: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
+    volumes:
+      - wendococr_uploads:/tmp/wendococr
+
+volumes:
+  wendococr_uploads:

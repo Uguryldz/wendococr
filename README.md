@@ -31,9 +31,21 @@ pip install -r requirements.txt
 ### Docker
 
 ```bash
-docker build -t wendococr .
-docker run -p 8099:8099 wendococr
+docker build -t uguryldz/wendococr:v1.0.0 .
+docker run -p 8099:8099 uguryldz/wendococr:v1.0.0
 ```
+
+### Docker Compose (offline runtime uyumlu)
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+Notlar:
+- `Dockerfile` build aşamasında PaddleOCR modellerini preload eder (`PRELOAD_PADDLE_MODELS=1`).
+- Bu sayede container internetsiz ortamda çalışırken model indirmeye ihtiyaç duymaz.
+- Build ortamında internet yoksa `PRELOAD_PADDLE_MODELS=0` kullanın ve `/root/.paddlex` cache'ini dışarıdan mount edin.
 
 ### Ortam değişkenleri
 
@@ -70,6 +82,9 @@ curl -X POST "http://localhost:8099/v1/pdftexttable" -F "file=@tablo.pdf"
 
 # RapidOCR (taranmış / resim)
 curl -X POST "http://localhost:8099/v1/pdfimagev5" -F "file=@taranmis.pdf"
+
+# PaddleOCR low bellek (Docker için önerilen)
+curl -X POST "http://localhost:8099/v1/pdfimagepaddleocrlow" -F "file=@taranmis.pdf"
 
 # Türkçe OCR (Tesseract)
 curl -X POST "http://localhost:8099/v1/pdfimagets" -F "file=@taranmis.pdf"
