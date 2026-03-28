@@ -8,7 +8,8 @@ Kullanılan kütüphaneler / versiyon (requirements.txt ile uyumlu):
   - PyMuPDF (fitz): pymupdf>=1.23.0  — PDF okuma, metin blokları, gömülü resim çıkarma
   - Tesseract: pytesseract>=0.3.10 + sistem tesseract-ocr, tesseract-ocr-tur — gömülü resim OCR (lang=tur, --oem 3 --psm 6)
   - OpenCV: opencv-python-headless>=4.8.0 — görüntü dönüşümü
-  - app.utils.image_preprocess: preprocess_image (grayscale, threshold, deskew)
+  - app.utils.image_preprocess: preprocess_image (grayscale, adaptive threshold, deskew)
+  - app.utils.turkish_postprocess: Türkçe diacritik restorasyon + OCR artefakt temizleme
 """
 import fitz  # PyMuPDF
 import json
@@ -23,6 +24,7 @@ from typing import Any
 import traceback
 
 from app.utils.image_preprocess import preprocess_image
+from app.utils.turkish_postprocess import postprocess_turkish
 
 # Gömülü resim OCR: pdfimagetable ile aynı — Tesseract Türkçe (--oem 3 --psm 6)
 TESSERACT_CONFIG = "--oem 3 --psm 6"
@@ -38,7 +40,9 @@ def _ocr_embedded_image_tesseract(img_np: np.ndarray) -> list[tuple[list, str]]:
         img = cv2.cvtColor(img_np, cv2.COLOR_GRAY2BGR)
     else:
         img = img_np.copy()
-    img = preprocess_image(img, grayscale=True, threshold=True, deskew=True)
+    # Türkçe diacritik-safe: threshold=False (adaptive threshold artık image_preprocess'te),
+    # sharpen=True ile ö/ü/ç/ş/ğ/İ detayları vurgulanır
+    img = preprocess_image(img, grayscale=True, threshold=False, deskew=True, sharpen=True)
     out = []
     try:
         data = pytesseract.image_to_data(
@@ -49,6 +53,8 @@ def _ocr_embedded_image_tesseract(img_np: np.ndarray) -> list[tuple[list, str]]:
             text = (data.get("text") or [])[i] or ""
             if not text.strip():
                 continue
+            # Türkçe post-processing: diacritik restorasyon + artefakt temizleme
+            text = postprocess_turkish(text)
             left = int((data.get("left") or [0])[i])
             top = int((data.get("top") or [0])[i])
             width = int((data.get("width") or [0])[i])
@@ -127,10 +133,12 @@ def _process_page(page) -> tuple[list[dict], float, float]:
         if pix.n == 4:
             img_np = cv2.cvtColor(img_np, cv2.COLOR_RGBA2RGB)
         gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-        processed = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
+        # Kontrast artırma: alpha=1.3 (1.5'ten düşürüldü — diacritikleri korumak için)
+        processed = cv2.convertScaleAbs(gray, alpha=1.3, beta=10)
         ocr_result = _ocr_embedded_image_tesseract(processed)
         if ocr_result:
             all_text = " ".join(item[1].strip() for item in ocr_result if item[1]).strip()
+            all_text = postprocess_turkish(all_text)
             if not all_text:
                 continue
             img_box = [

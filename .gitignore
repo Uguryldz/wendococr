@@ -1,11 +1,43 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 *.pyo
-*.egg-info/
+*.so
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Distribution
 dist/
 build/
-.eggs/
+*.egg-info/
 *.egg
+.eggs/
+
+# Environment
 .env
+
+# Temp / Upload
 /tmp/wendococr/
+*.tmp
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test çıktıları
+test/__pycache__/
+test/finocr/
+test/*_extract.json
+test/*_extract.xlsx

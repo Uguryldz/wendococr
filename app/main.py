@@ -16,30 +16,61 @@ logging.basicConfig(
 )
 logger = logging.getLogger("wendococr")
 
-# jsontotext sayfası için statik dosya yolu
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-# Swagger'da desteklenen formatlar açıklaması (tag açıklamasında kullanılır)
-SUPPORTED_FORMATS_DESC = (
-    "Desteklenen belge formatları: PDF; resim: JPEG, JPG, PNG, BMP, WEBP, TIFF, TIF, GIF, PBM, PGM, PPM "
-    "(OpenCV ile okunabilen tüm resim türleri). Endpoint'e göre sadece PDF veya sadece resim kabul edenler vardır."
-)
-
+# ─── Swagger Kategori Sıralaması ───
 OPENAPI_TAGS = [
     {
-        "name": "Belge çıkarımı",
-        "description": "PDF veya resim yükleyip metin/tablo çıkarımı. Her endpoint farklı motor kullanır. " + SUPPORTED_FORMATS_DESC,
+        "name": "Otomatik",
+        "description": "Belgeyi analiz edip sayfa bazlı en uygun motoru otomatik seçer. Ne kullanacağınızdan emin değilseniz buradan başlayın.",
     },
-    {"name": "Sistem", "description": "Sağlık kontrolü ve servis bilgisi."},
+    {
+        "name": "Dijital PDF",
+        "description": "Metin katmanı olan (searchable) PDF belgeler. OCR kullanmaz, doğrudan metin/tablo çeker. En hızlı yöntem.",
+    },
+    {
+        "name": "Taranmış Belge OCR",
+        "description": "Taranmış PDF veya resim dosyaları. 3 farklı OCR motoru: RapidOCR (hızlı), Tesseract (Türkçe optimize), PaddleOCR (düşük bellek). Tüm motorlarda Türkçe diacritik post-processing aktif.",
+    },
+    {
+        "name": "Hibrit OCR",
+        "description": "Hem metin katmanı hem gömülü resim içeren belgeler (Findeks raporu, kredi raporu vb.). Native metin + gömülü resim OCR birleştirilir. Kilitli endpoint'ler.",
+    },
+    {
+        "name": "El Yazısı Tanıma (ICR)",
+        "description": "El yazısı belgeler: dilekçe, başvuru formu, el notu, imza üstü yazılar. El yazısına özel preprocessing (bilateral filter, morfolojik dilation, agresif deskew) + Türkçe post-processing.",
+    },
+    {
+        "name": "Findeks Export",
+        "description": "Findeks Kredi Notu ve Risk Raporu PDF'inden 14 bölümü yapısal olarak çıkarır. JSON ve XLSX formatında export. Kilitli endpoint.",
+    },
+    {
+        "name": "Sistem",
+        "description": "Sağlık kontrolü, motor durumları ve servis bilgisi.",
+    },
 ]
+
 app = FastAPI(
     title="wendococr",
     description=(
-        "Hybrid OCR & Document Parser (CPU Optimized).\n\n"
-        "**Desteklenen formatlar:** PDF; resim: JPEG, PNG, BMP, WEBP, TIFF, TIF, GIF, PBM, PGM, PPM "
-        "(okuyabildiğimiz tüm resim türleri). Endpoint bazında sadece PDF veya sadece resim kabul edenler olabilir."
+        "## Hybrid OCR, ICR & Document Parser\n"
+        "CPU Optimized | Türkçe Diacritik Desteği\n\n"
+        "### Yetenekler\n"
+        "| Kategori | Açıklama | Endpoint Sayısı |\n"
+        "|----------|----------|-----------------|\n"
+        "| **Otomatik** | Akıllı motor seçimi | 1 |\n"
+        "| **Dijital PDF** | Native metin/tablo çıkarımı | 2 |\n"
+        "| **Taranmış Belge OCR** | RapidOCR, Tesseract, PaddleOCR | 3 |\n"
+        "| **Hibrit OCR** | Metin + gömülü resim | 2 |\n"
+        "| **El Yazısı (ICR)** | Tesseract ICR, PaddleOCR ICR | 2 |\n"
+        "| **Findeks Export** | Yapısal veri çıkarımı (JSON/XLSX) | 1 |\n\n"
+        "### Desteklenen Formatlar\n"
+        "**PDF** | **Resim:** JPEG, PNG, BMP, WEBP, TIFF, GIF, PBM, PGM, PPM\n\n"
+        "### Ortak Parametreler\n"
+        "- `page_range`: Sayfa aralığı (ör: `1-5`, `1,3,7`, `1-3,7,9-10`)\n"
+        "- `format`: Çıktı formatı — `json` (varsayılan) veya `text`\n"
     ),
-    version="0.1.0",
+    version="0.2.0",
     openapi_tags=OPENAPI_TAGS,
 )
 app.add_middleware(
@@ -54,26 +85,53 @@ app.include_router(api_router)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """500 hatalarında tutarlı format; DEBUG'ta detay gösterir."""
     logger.exception("Unexpected error: %s", exc)
     detail = str(exc) if DEBUG else "Sunucu hatası. Lütfen tekrar deneyin."
     return JSONResponse(status_code=500, content={"detail": detail})
 
 
-@app.get("/")
+@app.get("/", tags=["Sistem"], summary="Servis bilgisi ve endpoint haritası")
 def root():
+    """Tüm endpoint'lerin kategorize listesi."""
     return {
         "service": "wendococr",
+        "version": "0.2.0",
         "docs": "/docs",
         "health": "/health",
-        "jsontotext": "/jsontotext",
-        "rawjsontotext": "/rawjsontotext",
+        "endpoints": {
+            "otomatik": {
+                "/v1/auto": "Akıllı motor seçimi",
+            },
+            "dijital_pdf": {
+                "/v1/pdftext": "PDF metin çıkarımı",
+                "/v1/pdftexttable": "PDF metin + tablo çıkarımı",
+            },
+            "taranmis_belge_ocr": {
+                "/v1/pdfimagev5": "RapidOCR (hızlı)",
+                "/v1/pdfimagets": "Tesseract Türkçe",
+                "/v1/pdfimagepaddleocrlow": "PaddleOCR (düşük bellek)",
+            },
+            "hibrit_ocr": {
+                "/v1/pdftxtimage": "Metin + gömülü resim OCR",
+                "/v1/pdfimagetable": "Tablo + gömülü resim OCR",
+            },
+            "el_yazisi_icr": {
+                "/v1/icr": "Tesseract ICR",
+                "/v1/icrpaddle": "PaddleOCR ICR",
+            },
+            "findeks_export": {
+                "/v1/findeksexport": "Findeks rapor çıkarımı (JSON/XLSX)",
+            },
+        },
+        "ui": {
+            "/jsontotext": "JSON → metin grid mapping",
+            "/rawjsontotext": "Ham JSON + konumsal metin",
+        },
     }
 
 
 @app.get("/jsontotext", include_in_schema=False)
 def jsontotext_page():
-    """Koordinatlı JSON çıktısını grid mapping ile metne çeviren sayfa (solda JSON, sağda hizalı TXT)."""
     path = STATIC_DIR / "jsontotext.html"
     if not path.exists():
         return {"detail": "jsontotext.html not found"}
@@ -82,7 +140,6 @@ def jsontotext_page():
 
 @app.get("/rawjsontotext", include_in_schema=False)
 def rawjsontotext_page():
-    """JSON içeriğini ham ve konuma göre metin olarak ayrı panellerde gösteren sayfa."""
     path = STATIC_DIR / "rawjsontotext.html"
     if not path.exists():
         return {"detail": "rawjsontotext.html not found"}

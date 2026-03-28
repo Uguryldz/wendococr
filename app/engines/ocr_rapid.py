@@ -20,14 +20,13 @@ from app.config import (
     RAPIDOCR_TEXT_SCORE,
 )
 
-# Gerekli yardımcı fonksiyonları projenden alıyoruz
-# Eğer preprocess_image hala yavaşsa, aşağıda nasıl devre dışı bırakacağını belirttim.
 try:
     from app.utils.image_preprocess import preprocess_image, load_image
 except ImportError:
-    # Yedek fonksiyonlar (Eğer import hata verirse diye)
     def load_image(p): return cv2.imread(str(p))
     def preprocess_image(img, **kwargs): return img
+
+from app.utils.turkish_postprocess import postprocess_turkish
 
 _rapid_engine = None
 
@@ -52,14 +51,16 @@ _WHITESPACE_RE = re.compile(r"\s+")
 
 def _enhance_for_turkish_rapid(gray: np.ndarray) -> np.ndarray:
     """
-    Türkçe diakritiklerini koruyacak hafif iyileştirme.
-    - Küçük metinlerde upscale
+    Türkçe diakritiklerini koruyacak iyileştirme.
+    - Küçük metinlerde upscale (diacritikler daha görünür)
     - CLAHE ile lokal kontrast artırma
+    - Unsharp mask ile diacritik keskinleştirme (ö/ü/ç/ş/ğ/İ noktaları)
     """
     if gray is None or gray.size == 0:
         return gray
     h, w = gray.shape[:2]
     out = gray
+    # Küçük görüntüleri büyüt — diacritik noktaları daha net olur
     if max(h, w) < 1400:
         out = cv2.resize(out, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
     try:
@@ -67,6 +68,10 @@ def _enhance_for_turkish_rapid(gray: np.ndarray) -> np.ndarray:
         out = clahe.apply(out)
     except Exception:
         pass
+    # Unsharp mask: diacritik detaylarını vurgula
+    blurred = cv2.GaussianBlur(out, (0, 0), sigmaX=2.0)
+    out = cv2.addWeighted(out, 1.4, blurred, -0.4, 0)
+    out = np.clip(out, 0, 255).astype(np.uint8)
     return out
 
 
@@ -143,6 +148,10 @@ def _run_rapidocr(
         score = float(line[2]) if len(line) > 2 and line[2] is not None else None
 
         text = _clean_text(text)
+        if not text:
+            continue
+        # Türkçe post-processing: diacritik restorasyon + artefakt temizleme
+        text = postprocess_turkish(text)
         if not text:
             continue
         if len(text) < RAPIDOCR_MIN_TOKEN_LEN and not any(ch.isdigit() for ch in text):

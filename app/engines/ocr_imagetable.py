@@ -9,7 +9,8 @@ Kullanılan kütüphaneler / versiyon (requirements.txt ile uyumlu):
   - PyMuPDF (fitz): pymupdf>=1.23.0 — gömülü resim çıkarma
   - Tesseract: pytesseract>=0.3.10 + sistem tesseract-ocr, tesseract-ocr-tur — gömülü resim OCR (lang=tur, --oem 3 --psm 6)
   - OpenCV: opencv-python-headless>=4.8.0 — görüntü dönüşümü
-  - app.utils.image_preprocess: preprocess_image (grayscale, threshold, deskew)
+  - app.utils.image_preprocess: preprocess_image (grayscale, adaptive threshold, deskew)
+  - app.utils.turkish_postprocess: Türkçe diacritik restorasyon + OCR artefakt temizleme
 """
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ import traceback
 import pytesseract
 
 from app.utils.image_preprocess import preprocess_image
+from app.utils.turkish_postprocess import postprocess_turkish
 
 # Gömülü resim OCR: Türkçe için Tesseract (--oem 3 --psm 6)
 TESSERACT_CONFIG = "--oem 3 --psm 6"
@@ -38,7 +40,8 @@ def _ocr_embedded_image_tesseract(img_np: np.ndarray) -> list[tuple[list, str]]:
         img = cv2.cvtColor(img_np, cv2.COLOR_GRAY2BGR)
     else:
         img = img_np.copy()
-    img = preprocess_image(img, grayscale=True, threshold=True, deskew=True)
+    # Türkçe diacritik-safe: threshold=False, sharpen=True
+    img = preprocess_image(img, grayscale=True, threshold=False, deskew=True, sharpen=True)
     out = []
     try:
         data = pytesseract.image_to_data(
@@ -49,6 +52,8 @@ def _ocr_embedded_image_tesseract(img_np: np.ndarray) -> list[tuple[list, str]]:
             text = (data.get("text") or [])[i] or ""
             if not text.strip():
                 continue
+            # Türkçe post-processing
+            text = postprocess_turkish(text)
             left = int((data.get("left") or [0])[i])
             top = int((data.get("top") or [0])[i])
             width = int((data.get("width") or [0])[i])
@@ -233,11 +238,13 @@ def _process_page_imagetable(
             if pix.n == 4:
                 img_np = cv2.cvtColor(img_np, cv2.COLOR_RGBA2RGB)
             gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            processed = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
+            # Kontrast artırma: alpha=1.3 (diacritikleri korur), beta=10 (parlaklık dengesi)
+            processed = cv2.convertScaleAbs(gray, alpha=1.3, beta=10)
             ocr_result = _ocr_embedded_image_tesseract(processed)
             ocr_text = ""
             if ocr_result:
                 ocr_text = " ".join(item[1].strip() for item in ocr_result if item[1]).strip()
+                ocr_text = postprocess_turkish(ocr_text)
 
             cell_ref = _find_cell_for_image(bbox, tables_with_cells)
             if cell_ref is not None and ocr_text:

@@ -8,7 +8,11 @@ rapidocr_onnxruntime>=1.3.0
 pytesseract>=0.3.10
 opencv-python-headless>=4.8.0
 pydantic>=2.0.0
-ollama>=0.3.0
+Pillow>=10.0.0
+
+# Findeks Export (findeksexport motoru)
+pandas>=2.0.0
+openpyxl>=3.1.0
 
 # PaddleOCR (pdfimagepaddleocrlow motoru)
 paddleocr

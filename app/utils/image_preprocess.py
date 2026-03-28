@@ -1,4 +1,4 @@
-"""Görüntü ön işleme: grayscale, thresholding, deskew (OpenCV)."""
+"""Görüntü ön işleme: grayscale, thresholding, deskew, Türkçe diacritik koruma (OpenCV)."""
 from pathlib import Path
 import cv2
 import numpy as np
@@ -26,20 +26,82 @@ def _deskew(image: NDArray) -> NDArray:
     return cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 
-def preprocess_image(image: NDArray, *, grayscale: bool = True, threshold: bool = True, deskew: bool = True) -> NDArray:
+def _adaptive_threshold(gray: NDArray) -> NDArray:
     """
-    OCR öncesi görüntü işleme.
+    Türkçe diacritik-safe adaptive threshold.
+
+    Otsu (global) yerine Gaussian adaptive threshold kullanır.
+    Sebep: Otsu global eşik değeri, ince vuruşları (ö/ü noktaları, ç/ş kuyrukları,
+    ğ breve'si, İ noktası) yok edebilir. Adaptive threshold lokal pencere
+    kullanarak bu detayları korur.
+
+    Ek olarak morfolojik closing ile kopmuş diacritik parçalarını yeniden birleştirir.
+    """
+    if gray is None or gray.size == 0:
+        return gray
+
+    h, w = gray.shape[:2]
+
+    # Block size: görüntü boyutuna göre ayarla (küçük görüntüde küçük pencere)
+    block_size = max(11, min(31, int(min(h, w) / 30) | 1))  # tek sayı olmalı
+    if block_size % 2 == 0:
+        block_size += 1
+
+    binary = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        blockSize=block_size,
+        C=8,  # offset: gürültüye karşı tolerans
+    )
+
+    # Morfolojik closing: kopmuş diacritik noktalarını/kuyruklarını geri birleştir
+    # Küçük kernel (2x2) - sadece 1px boşlukları kapatır, metni bulandırmaz
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+    return binary
+
+
+def _sharpen_diacritics(gray: NDArray) -> NDArray:
+    """
+    Türkçe diacritik vurgulama: unsharp mask ile ince detayları keskinleştirir.
+    ö, ü, ç, ş, ğ, İ gibi karakterlerin nokta/kuyruk/breve kısımlarını OCR'a
+    daha görünür hale getirir.
+    """
+    if gray is None or gray.size == 0:
+        return gray
+    # Unsharp mask: orijinal - blur = detay; orijinal + detay = keskin
+    blurred = cv2.GaussianBlur(gray, (0, 0), sigmaX=2.0)
+    sharpened = cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
+    return np.clip(sharpened, 0, 255).astype(np.uint8)
+
+
+def preprocess_image(
+    image: NDArray,
+    *,
+    grayscale: bool = True,
+    threshold: bool = True,
+    deskew: bool = True,
+    sharpen: bool = False,
+) -> NDArray:
+    """
+    OCR öncesi görüntü işleme (Türkçe diacritik-safe).
+
     - grayscale: BGR/RGB -> gri
-    - threshold: Otsu ile binary
+    - threshold: Adaptive Gaussian threshold (Türkçe diacritikleri korur)
     - deskew: Eğiklik düzeltme
+    - sharpen: Diacritik keskinleştirme (opsiyonel, OCR öncesi detay vurgulama)
     """
     if image is None or image.size == 0:
         return image
     out = image.copy()
     if len(out.shape) == 3 and grayscale:
         out = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+    if sharpen and len(out.shape) == 2:
+        out = _sharpen_diacritics(out)
     if threshold and len(out.shape) == 2:
-        out = cv2.threshold(out, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        out = _adaptive_threshold(out)
     if deskew and out is not None:
         if len(out.shape) == 2:
             out = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)

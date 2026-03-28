@@ -5,6 +5,7 @@ Amaç:
 - Docker ortamında RAM patlamasını önlemek.
 - Büyük görsellerde doc preprocessor / unwarping / yönelim adımlarını kapatmak.
 - Hem input görselini küçültmek hem de PaddleOCR text-detection limitlerini uygulamak.
+- Türkçe diacritik post-processing uygulamak.
 """
 
 from __future__ import annotations
@@ -29,8 +30,36 @@ from app.config import (
     PADDLEOCR_LOW_TEXT_REC_SCORE_THRESH,
 )
 from app.config import UPLOAD_DIR
+from app.utils.turkish_postprocess import postprocess_turkish
 
 _OCR_CACHE: dict[int, Any] = {}
+
+
+def _enhance_for_turkish_paddle(image: np.ndarray) -> np.ndarray:
+    """
+    Türkçe diacritik-safe ön işleme (PaddleOCR için).
+    - CLAHE ile lokal kontrast artırma
+    - Unsharp mask ile diacritik keskinleştirme
+    """
+    if image is None or image.size == 0:
+        return image
+    # Grayscale'e çevir
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image
+    # CLAHE
+    try:
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
+    except Exception:
+        pass
+    # Unsharp mask
+    blurred = cv2.GaussianBlur(gray, (0, 0), sigmaX=2.0)
+    sharp = cv2.addWeighted(gray, 1.4, blurred, -0.4, 0)
+    sharp = np.clip(sharp, 0, 255).astype(np.uint8)
+    # BGR'ye geri dönüştür (PaddleOCR 3 kanal bekler)
+    return cv2.cvtColor(sharp, cv2.COLOR_GRAY2BGR)
 
 
 def _as_resized_image_path(image: np.ndarray, *, max_side: int, out_dir: Path) -> tuple[Path, float, float]:
@@ -44,6 +73,9 @@ def _as_resized_image_path(image: np.ndarray, *, max_side: int, out_dir: Path) -
     else:
         resized = image
         new_w, new_h = w, h
+
+    # Türkçe diacritik iyileştirme uygula
+    resized = _enhance_for_turkish_paddle(resized)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"paddleocr_low_{uuid.uuid4().hex}_max{max_side}.png"
@@ -92,6 +124,8 @@ def _predict_to_text_blocks(raw_result: dict[str, Any]) -> list[dict[str, Any]]:
         t = (text or "").strip()
         if not t:
             continue
+        # Türkçe post-processing: diacritik restorasyon + artefakt temizleme
+        t = postprocess_turkish(t)
         box = boxes[i] if i < len(boxes) else None
         if box is None:
             continue

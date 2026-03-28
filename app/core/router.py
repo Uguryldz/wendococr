@@ -12,6 +12,7 @@ from app.config import (
     AUTO_FORCE_RAPID_OCR,
     AUTO_FORCE_PADDLEOCR_LOW,
     EXTRACT_MODES,
+    ICR_DPI,
     OCR_DPI_RAPID,
     OCR_DPI_TESSERACT,
     OCR_DPI_PADDLEOCR_LOW,
@@ -102,6 +103,10 @@ def process_document(
         from app.engines.ocr_imagetable import extract as ocr_imagetable_extract
         raw = ocr_imagetable_extract(path, page_numbers=page_numbers)
         return raw, "pdfimagetable"
+    if mode == "icr":
+        return _run_ocr_pdf_or_image(path, content_type, engine="icr", page_numbers=page_numbers)
+    if mode == "icrpaddle":
+        return _run_ocr_pdf_or_image(path, content_type, engine="icrpaddle", page_numbers=page_numbers)
     # --- AUTO ---
     if content_type and content_type.lower() in ALLOWED_IMAGE_TYPES:
         return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers or [0])
@@ -180,6 +185,8 @@ def _run_ocr_pdf_or_image(
                 dpi = OCR_DPI_RAPID
             elif engine == "pdfimagepaddleocrlow":
                 dpi = int(os.environ.get("OCR_DPI_PADDLEOCR_LOW", str(OCR_DPI_PADDLEOCR_LOW)))
+            elif engine in ("icr", "icrpaddle"):
+                dpi = ICR_DPI
             else:
                 dpi = OCR_DPI_TESSERACT
             png_bytes = pdf_page_to_image(path, i, dpi=dpi)
@@ -190,6 +197,12 @@ def _run_ocr_pdf_or_image(
                 elif engine == "pdfimagepaddleocrlow":
                     from app.engines.ocr_paddleocr_low import extract as ocr_paddleocr_low_extract
                     part = ocr_paddleocr_low_extract(path, page_numbers=[i], image_bytes=png_bytes)
+                elif engine == "icr":
+                    from app.engines.icr_tesseract import extract as icr_tesseract_extract
+                    part = icr_tesseract_extract(path, page_numbers=[i], image_bytes=png_bytes)
+                elif engine == "icrpaddle":
+                    from app.engines.icr_paddleocr import extract as icr_paddleocr_extract
+                    part = icr_paddleocr_extract(path, page_numbers=[i], image_bytes=png_bytes)
                 else:
                     from app.engines.ocr_tesseract import extract as ocr_tesseract_extract
                     part = ocr_tesseract_extract(path, page_numbers=[i], image_bytes=png_bytes)
@@ -206,6 +219,12 @@ def _run_ocr_pdf_or_image(
     elif engine == "pdfimagepaddleocrlow":
         from app.engines.ocr_paddleocr_low import extract as ocr_paddleocr_low_extract
         raw = ocr_paddleocr_low_extract(path, page_numbers=[0])
+    elif engine == "icr":
+        from app.engines.icr_tesseract import extract as icr_tesseract_extract
+        raw = icr_tesseract_extract(path, page_numbers=[0])
+    elif engine == "icrpaddle":
+        from app.engines.icr_paddleocr import extract as icr_paddleocr_extract
+        raw = icr_paddleocr_extract(path, page_numbers=[0])
     else:
         from app.engines.ocr_tesseract import extract as ocr_tesseract_extract
         raw = ocr_tesseract_extract(path, page_numbers=[0])

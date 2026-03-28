@@ -4,16 +4,18 @@ pdfimagets motoru: Tesseract ile resim/taranmış sayfa OCR (Türkçe, koordinat
 KİLİTLİ: Bu modül Türkçe için ayarlandı; sonraki işlemlerde bu dosyaya müdahale etmeyin.
 
 Türkçe için yaklaşım:
-  - lang=tur
+  - lang=tur+eng
   - --oem 3 (LSTM)
   - PSM varsayılan 3 (auto); gerekirse env ile değiştirilebilir
   - preserve_interword_spaces=1 (rapor/tablolu metinde boşluklar daha stabil)
-  - Ön işleme: Türkçe diakritikler için threshold varsayılan kapalı; deskew opsiyonel
+  - Ön işleme: Türkçe diakritikler için threshold varsayılan kapalı; sharpen aktif
+  - Post-processing: Türkçe diacritik restorasyon + OCR artefakt temizleme
 
 Kullanılan kütüphaneler / versiyon (requirements.txt ile uyumlu):
   - pytesseract>=0.3.10 + sistem tesseract-ocr, tesseract-ocr-tur
   - opencv-python-headless>=4.8.0
   - app.utils.image_preprocess (preprocess_image)
+  - app.utils.turkish_postprocess (postprocess_turkish)
 """
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,7 @@ from app.config import (
     TESSERACT_USER_DEFINED_DPI,
 )
 from app.utils.image_preprocess import preprocess_image, load_image
+from app.utils.turkish_postprocess import postprocess_turkish
 
 
 def _enhance_for_turkish_tesseract(gray: np.ndarray) -> np.ndarray:
@@ -80,6 +83,7 @@ def _run_tesseract(
         grayscale=True,
         threshold=TESSERACT_THRESHOLD,
         deskew=TESSERACT_DESKEW,
+        sharpen=True,  # Türkçe diacritik detaylarını vurgula
     )
     out = []
     # Türkçe: lang=tur, LSTM motor (oem 3), otomatik segmentasyon (psm 3) + boşluk koruma
@@ -130,6 +134,8 @@ def _run_tesseract(
             except Exception:
                 continue
             bbox = [float(left), float(top), float(left + width), float(top + height)]
+            # Türkçe post-processing: diacritik restorasyon
+            text = postprocess_turkish(text)
             local_out.append((bbox, text))
         avg_conf = (conf_sum / conf_n) if conf_n else -1.0
         return local_out, avg_conf

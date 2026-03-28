@@ -15,8 +15,9 @@ MAX_PAGES = 500
 
 # OCR ayarları
 # PDF -> görüntü DPI: yükseldikçe kalite artar, hız düşer.
-OCR_DPI_RAPID = 150
-OCR_DPI_TESSERACT = 200
+# Türkçe diacritik koruma için minimum 200 DPI önerilir (ö/ü/ç/ş/ğ/İ noktaları).
+OCR_DPI_RAPID = 200
+OCR_DPI_TESSERACT = 250
 AUTO_FORCE_RAPID_OCR = True
 
 # RapidOCR ayarları (daha katı çıkarım için)
@@ -66,15 +67,24 @@ EXT_TO_MIME = {
     ".ppm": "image/x-portable-pixmap",
 }
 
+# ICR (El Yazısı Tanıma) ayarları
+ICR_DPI = 300  # El yazısı için yüksek DPI gerekli
+ICR_PSM_CANDIDATES = ["4", "6", "13", "3"]  # PSM 4: tek sütun, 6: blok, 13: raw line, 3: auto
+ICR_USER_DEFINED_DPI = "300"
+
 # Desteklenen mode değerleri
-EXTRACT_MODES = {"auto", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets", "pdftxtimage", "pdfimagetable", "pdfimagepaddleocrlow"}
+EXTRACT_MODES = {
+    "auto", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets",
+    "pdftxtimage", "pdfimagetable", "pdfimagepaddleocrlow",
+    "icr", "icrpaddle",
+}
 
 # PaddleOCR (low bellek) ayarları
 # Not: PaddleOCR bağımlılıkları Docker imajına eklenecek (requirements.txt).
 # Bu motor, büyük görsellerde RAM patlamasını önlemek için ağır doc pipeline kapalı ve input boyutu sınırlandırılır.
 AUTO_FORCE_PADDLEOCR_LOW = False
 
-OCR_DPI_PADDLEOCR_LOW = 150
+OCR_DPI_PADDLEOCR_LOW = 200
 PADDLEOCR_LOW_MAX_SIDE = 1200
 PADDLEOCR_LOW_TEXT_DET_LIMIT = 1200
 PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE = "min"
