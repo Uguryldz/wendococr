@@ -4,6 +4,8 @@ from typing import Any
 
 import fitz
 
+from app.utils.text_layout import content_from_text_blocks_with_bbox
+
 
 def _bbox_union(boxes: list[tuple[float, float, float, float]]) -> tuple[float, float, float, float]:
     """Birden fazla bbox'ı tek bbox'ta birleştirir."""
@@ -65,8 +67,7 @@ def extract(
                             "text": line_text,
                             "bbox": [x0, y0, x1, y1],
                         })
-                    full_text_parts.append(line_text)
-            content = "\n".join(full_text_parts).strip()
+            content = content_from_text_blocks_with_bbox(text_blocks)
             if not content and page.get_text().strip():
                 content = page.get_text().strip()
                 if not text_blocks:

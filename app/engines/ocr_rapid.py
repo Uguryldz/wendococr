@@ -191,7 +191,8 @@ def extract(
         return []
 
     text_blocks = [{"text": t, "bbox": b} for b, t in lines_bbox]
-    content = "\n".join(t for _, t in lines_bbox)
+    from app.utils.text_layout import content_from_text_blocks_with_bbox
+    content = content_from_text_blocks_with_bbox(text_blocks)
 
     return [{
         "page_number": page_no,

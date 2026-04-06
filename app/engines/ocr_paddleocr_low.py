@@ -224,7 +224,8 @@ def extract(
                 }]
 
             text_blocks = _predict_to_text_blocks(first_result.json)
-            content = "\n".join(tb["text"] for tb in text_blocks if tb.get("text"))
+            from app.utils.text_layout import content_from_text_blocks_with_bbox
+            content = content_from_text_blocks_with_bbox(text_blocks)
 
             return [{
                 "page_number": page_no,

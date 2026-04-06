@@ -5,132 +5,342 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>JSON → Metin (Grid Mapping) | wendococr</title>
   <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #333; }
+    * { box-sizing: border-box; margin: 0; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; }
     .layout { display: flex; flex-direction: column; height: 100vh; }
+
+    /* Toolbar */
     .toolbar {
-      display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-      padding: 8px 16px; background: #fff; border-bottom: 1px solid #e0e0e0;
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 20px; background: #1e293b; border-bottom: 1px solid #334155;
     }
-    .toolbar button {
-      display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
-      border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer;
-      font-size: 13px;
+    .toolbar .title { font-weight: 700; font-size: 15px; color: #f1f5f9; margin-right: auto; }
+    .toolbar .title span { color: #60a5fa; }
+    .toolbar .badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 10px;
+      background: #1e3a5f; color: #93c5fd; font-weight: 600;
     }
-    .toolbar button:hover { background: #f5f5f5; border-color: #ccc; }
-    .panes { display: flex; flex: 1; min-height: 0; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px; padding: 6px 14px;
+      border: 1px solid #475569; background: #334155; border-radius: 6px; cursor: pointer;
+      font-size: 12px; color: #e2e8f0; font-weight: 500; transition: all .15s;
+    }
+    .btn:hover { background: #475569; border-color: #64748b; }
+    .btn-primary { background: #2563eb; border-color: #3b82f6; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+
+    /* Panes */
+    .panes { display: flex; flex: 1; min-height: 0; gap: 2px; padding: 8px; }
     .pane {
-      flex: 1; display: flex; flex-direction: column; background: #fff;
-      border: 1px solid #e0e0e0; margin: 8px; border-radius: 8px; overflow: hidden;
+      flex: 1; display: flex; flex-direction: column; background: #1e293b;
+      border: 1px solid #334155; border-radius: 10px; overflow: hidden;
     }
-    .pane:first-child { margin-right: 4px; }
-    .pane:last-child { margin-left: 4px; }
     .pane-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 12px 16px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 14px;
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+      padding: 10px 16px; border-bottom: 1px solid #334155; gap: 8px;
+      background: linear-gradient(to bottom, #1e293b, #172032);
     }
-    .pane-header .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .pane-header .actions button { padding: 4px 10px; font-size: 12px; }
-    .pane-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    #jsonInput {
-      width: 100%; height: 100%; min-height: 200px; padding: 12px;
-      border: none; resize: none; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px;
-      line-height: 1.5;
+    .pane-header .label { font-weight: 600; font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; }
+    .pane-body { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+
+    textarea {
+      width: 100%; height: 100%; padding: 14px; border: none; resize: none;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 12.5px;
+      line-height: 1.6; background: transparent; color: #e2e8f0; outline: none;
     }
-    #jsonInput::placeholder { color: #999; }
-    #textOutput {
-      width: 100%; height: 100%; min-height: 200px; padding: 12px;
-      border: none; resize: none; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px;
-      line-height: 1.4; background: #fafafa;
+    textarea::placeholder { color: #475569; }
+    #textOutput { background: #0f172a; color: #a5f3fc; white-space: pre; }
+
+    /* Params bar */
+    .params-bar {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 8px 16px; background: #172032; border-bottom: 1px solid #334155;
+      font-size: 12px;
     }
-    #outputWrap.empty #textOutput { color: #999; }
-    #outputWrap {
-      flex: 1; min-height: 0; display: flex; flex-direction: column;
+    .param-group { display: flex; align-items: center; gap: 5px; color: #94a3b8; }
+    .param-group input[type="number"] {
+      width: 52px; padding: 3px 6px; background: #0f172a; border: 1px solid #475569;
+      border-radius: 4px; color: #e2e8f0; font-size: 12px; text-align: center;
     }
-    #outputWrap.empty {
-      display: flex; align-items: center; justify-content: center; flex-direction: column;
-      color: #999; font-size: 14px; gap: 8px;
+    .param-group input[type="number"]:focus { border-color: #60a5fa; outline: none; }
+    .param-toggle {
+      display: flex; align-items: center; gap: 5px; color: #94a3b8; cursor: pointer;
     }
-    #outputWrap.empty #textOutput { display: none; }
-    #outputWrap.empty .placeholder { display: block; }
-    #outputWrap .placeholder { display: none; }
-    .placeholder .icon { font-size: 48px; opacity: 0.5; }
-    .grid-params {
-      display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12px;
+    .param-toggle input[type="checkbox"] { accent-color: #60a5fa; }
+
+    /* Placeholder */
+    .placeholder-box {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: #475569; gap: 8px; padding: 40px;
     }
-    .grid-params label { display: flex; align-items: center; gap: 4px; }
-    .grid-params input[type="number"] { width: 56px; padding: 2px 6px; }
-    .error { color: #c00; padding: 12px; font-size: 13px; }
+    .placeholder-box .icon { font-size: 52px; opacity: .4; }
+    .placeholder-box p { font-size: 13px; text-align: center; line-height: 1.5; }
+    .placeholder-box.hidden { display: none; }
+
+    /* Format info badge */
+    .format-badge {
+      font-size: 11px; padding: 2px 10px; border-radius: 10px; font-weight: 600;
+    }
+    .format-badge.ocr { background: #064e3b; color: #6ee7b7; }
+    .format-badge.findeks { background: #4c1d95; color: #c4b5fd; }
+    .format-badge.unknown { background: #78350f; color: #fcd34d; }
+
+    /* Status bar */
+    .status-bar {
+      display: flex; align-items: center; gap: 12px; padding: 4px 20px;
+      background: #1e293b; border-top: 1px solid #334155; font-size: 11px; color: #64748b;
+    }
+    .status-bar .stat { display: flex; align-items: center; gap: 4px; }
   </style>
 </head>
 <body>
   <div class="layout">
     <div class="toolbar">
-      <span style="margin-right:auto; font-weight:600;">JSON → Metin (koordinatlı grid mapping)</span>
-      <button type="button" id="btnDownloadTxt" title="TXT indir">↓ TXT İndir</button>
+      <div class="title"><span>JSON</span> → Metin</div>
+      <span class="badge" id="formatBadge" style="display:none"></span>
+      <button class="btn" id="btnSample">Sample</button>
+      <button class="btn" id="btnUpload">↑ Upload</button>
+      <input type="file" id="fileUpload" accept=".json,application/json" hidden>
+      <button class="btn btn-primary" id="btnDownloadTxt">↓ TXT İndir</button>
     </div>
     <div class="panes">
+      <!-- Input pane -->
       <div class="pane">
         <div class="pane-header">
-          <span>Paste JSON here</span>
-          <div class="actions">
-            <button type="button" id="btnSample">Sample</button>
-            <button type="button" id="btnUpload">↑ Upload</button>
-            <input type="file" id="fileUpload" accept=".json,application/json" hidden>
+          <span class="label">JSON Girişi</span>
+          <div style="display:flex;gap:6px;">
+            <button class="btn" id="btnClear" style="font-size:11px;padding:3px 10px;">Temizle</button>
+            <button class="btn" id="btnFormat" style="font-size:11px;padding:3px 10px;">Formatla</button>
           </div>
         </div>
         <div class="pane-body">
-          <textarea id="jsonInput" placeholder="Paste your JSON here (wendococr API koordinatlı yanıtı)"></textarea>
+          <textarea id="jsonInput" placeholder="JSON yapıştır veya dosya yükle&#10;&#10;Desteklenen formatlar:&#10; • wendococr OCR çıktısı ({pages: [...]})&#10; • Findeks export çıktısı ({rapor_ozeti, banka_bazli_limit_risk, ...})"></textarea>
         </div>
       </div>
+      <!-- Output pane -->
       <div class="pane">
         <div class="pane-header">
-          <span>Koordinatlı metin çıktısı</span>
-          <div class="actions grid-params">
-            <label>Karakter genişliği (pt): <input type="number" id="paramCharWidth" value="10" min="4" max="24" title="Küçük = sıkı, büyük = seyrek"></label>
-            <label>Satır yüksekliği (pt): <input type="number" id="paramLineHeight" value="14" min="6" max="30"></label>
-            <label>Y eşik (pt): <input type="number" id="paramYThreshold" value="4" min="1" max="20" title="Aynı satır sayılan max y farkı; küçük = daha çok satır"></label>
+          <span class="label">Metin Çıktısı</span>
+        </div>
+        <!-- Params bar for OCR mode -->
+        <div class="params-bar" id="paramsBar" style="display:none">
+          <label class="param-toggle">
+            <input type="checkbox" id="paramAuto" checked>
+            Otomatik
+          </label>
+          <div class="param-group">
+            <span>Karakter genişliği:</span>
+            <input type="number" id="paramCharWidth" value="10" min="2" max="40" step="0.5">
+          </div>
+          <div class="param-group">
+            <span>Satır yüksekliği:</span>
+            <input type="number" id="paramLineHeight" value="14" min="4" max="50">
+          </div>
+          <div class="param-group">
+            <span>Y eşik:</span>
+            <input type="number" id="paramYThreshold" value="4" min="1" max="40">
           </div>
         </div>
-        <div class="pane-body" id="outputWrap">
-          <div class="placeholder">
+        <div class="pane-body">
+          <div class="placeholder-box" id="placeholderBox">
             <span class="icon">▦</span>
-            <span>JSON yapıştır veya yükle</span>
-            <span>Koordinatlara göre hizalı metin burada görünecek</span>
+            <p>JSON yapıştır veya yükle<br><span style="font-size:11px;color:#334155">Koordinatlara göre hizalı metin burada görünecek</span></p>
           </div>
-          <textarea id="textOutput" readonly placeholder=""></textarea>
+          <textarea id="textOutput" readonly style="display:none"></textarea>
         </div>
       </div>
+    </div>
+    <div class="status-bar">
+      <span class="stat" id="statInfo">Hazır</span>
     </div>
   </div>
 
   <script>
-    const jsonInput = document.getElementById('jsonInput');
-    const textOutput = document.getElementById('textOutput');
-    const outputWrap = document.getElementById('outputWrap');
-    const fileUpload = document.getElementById('fileUpload');
+    const $ = id => document.getElementById(id);
+    const jsonInput = $('jsonInput');
+    const textOutput = $('textOutput');
+    const placeholderBox = $('placeholderBox');
+    const formatBadge = $('formatBadge');
+    const paramsBar = $('paramsBar');
+    const statInfo = $('statInfo');
+    const fileUpload = $('fileUpload');
 
+    /* ────── bbox parser ────── */
     function parseBbox(bbox) {
       if (!bbox) return null;
-      if (Array.isArray(bbox) && bbox.length >= 4) return { x0: bbox[0], y0: bbox[1], x1: bbox[2], y1: bbox[3] };
-      if (typeof bbox === 'object') return {
-        x0: bbox.x0 ?? bbox[0],
-        y0: bbox.y0 ?? bbox.top ?? bbox[1],
-        x1: bbox.x1 ?? bbox[2],
-        y1: bbox.y1 ?? bbox.bottom ?? bbox[3]
-      };
+      if (Array.isArray(bbox) && bbox.length >= 4)
+        return { x0: +bbox[0], y0: +bbox[1], x1: +bbox[2], y1: +bbox[3] };
+      if (typeof bbox === 'object')
+        return {
+          x0: +(bbox.x0 ?? bbox[0] ?? 0),
+          y0: +(bbox.y0 ?? bbox.top ?? bbox[1] ?? 0),
+          x1: +(bbox.x1 ?? bbox[2] ?? 0),
+          y1: +(bbox.y1 ?? bbox.bottom ?? bbox[3] ?? 0),
+        };
       return null;
     }
 
-    /**
-     * Grid (ızgarа) mapping: Koordinatlardan satır/sütun konumuna çevirip
-     * y (satır), x (sütun) sıralı metin üretir. Y eşik ile aynı satır birleştirilir.
-     */
-    function pageToGridText(page, charWidth, lineHeight, yThreshold) {
-      const items = []; // { y, x, text }
-      const tableBoxes = []; // dedupe için tablo/hücre bbox'ları
+    /* ────── detect format ────── */
+    function detectFormat(data) {
+      if (data && Array.isArray(data.pages) && data.pages.length > 0) return 'ocr';
+      if (data && (data.rapor_ozeti || data.banka_bazli_limit_risk || data.ticari_krediler_ozet)) return 'findeks';
+      return 'unknown';
+    }
 
-      // 1) Tablolar: her hücreyi (y, x, metin) olarak ekle
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+       FINDEKS RENDERER
+       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    function renderFindeks(data) {
+      const lines = [];
+      const hr = (ch = '─', len = 70) => ch.repeat(len);
+      const section = (title) => { lines.push(''); lines.push(hr('━')); lines.push('  ' + title.toUpperCase()); lines.push(hr('━')); };
+      const subSection = (title) => { lines.push(''); lines.push('  ── ' + title + ' ──'); };
+
+      // Helper: dict'i key-value olarak yaz
+      function kvBlock(obj, indent = 4) {
+        if (!obj || typeof obj !== 'object') return;
+        const prefix = ' '.repeat(indent);
+        const keys = Object.keys(obj);
+        if (keys.length === 0) { lines.push(prefix + '(veri yok)'); return; }
+        const maxKey = Math.max(...keys.map(k => k.length));
+        for (const [k, v] of Object.entries(obj)) {
+          if (v === null || v === undefined || v === '') continue;
+          lines.push(prefix + k.padEnd(maxKey + 2) + ': ' + v);
+        }
+      }
+
+      // Helper: array of dicts'i tablo olarak yaz
+      function tableBlock(arr, indent = 4) {
+        if (!Array.isArray(arr) || arr.length === 0) { lines.push(' '.repeat(indent) + '(veri yok)'); return; }
+        const prefix = ' '.repeat(indent);
+        // Collect all keys
+        const allKeys = [];
+        for (const row of arr) {
+          if (typeof row !== 'object' || row === null) continue;
+          for (const k of Object.keys(row)) {
+            if (!allKeys.includes(k)) allKeys.push(k);
+          }
+        }
+        if (allKeys.length === 0) { lines.push(prefix + JSON.stringify(arr)); return; }
+        // Calculate column widths
+        const colWidths = allKeys.map(k => {
+          let max = k.length;
+          for (const row of arr) {
+            const v = row && row[k] != null ? String(row[k]) : '';
+            if (v.length > max) max = v.length;
+          }
+          return Math.min(max, 30);
+        });
+        // Header
+        const headerLine = allKeys.map((k, i) => k.padEnd(colWidths[i])).join('  │  ');
+        lines.push(prefix + headerLine);
+        lines.push(prefix + colWidths.map(w => '─'.repeat(w)).join('──┼──'));
+        // Rows
+        for (const row of arr) {
+          if (typeof row !== 'object' || row === null) continue;
+          const rowLine = allKeys.map((k, i) => {
+            const v = row[k] != null ? String(row[k]) : '';
+            return v.length > colWidths[i] ? v.substring(0, colWidths[i] - 1) + '…' : v.padEnd(colWidths[i]);
+          }).join('  │  ');
+          lines.push(prefix + rowLine);
+        }
+      }
+
+      // Helper: herhangi bir veriyi uygun şekilde render et
+      function renderValue(val, indent = 4) {
+        if (val === null || val === undefined) { lines.push(' '.repeat(indent) + '(veri yok)'); return; }
+        if (typeof val === 'string' || typeof val === 'number') { lines.push(' '.repeat(indent) + String(val)); return; }
+        if (Array.isArray(val)) {
+          if (val.length === 0) { lines.push(' '.repeat(indent) + '(boş)'); return; }
+          if (typeof val[0] === 'object' && val[0] !== null) { tableBlock(val, indent); }
+          else { for (const item of val) lines.push(' '.repeat(indent) + '• ' + String(item)); }
+          return;
+        }
+        if (typeof val === 'object') { kvBlock(val, indent); return; }
+        lines.push(' '.repeat(indent) + String(val));
+      }
+
+      // Section labels
+      const sectionLabels = {
+        rapor_ozeti: 'Rapor Özeti',
+        ticari_krediler_ozet: 'Ticari Krediler Özet',
+        kredi_turu_bazinda_hesap_bilgileri: 'Kredi Türü Bazında Hesap Bilgileri',
+        vade_bazli_limit_borc: 'Vade Bazlı Limit / Borç',
+        bankalar_ozet: 'Bankalar Özet',
+        banka_bazli_limit_risk: 'Banka Bazlı Limit / Risk',
+        finansman_sirketleri_ozet: 'Finansman Şirketleri Özet',
+        finansman_bazli_limit_risk: 'Finansman Bazlı Limit / Risk',
+        limit_risk_toplam: 'Limit / Risk Toplam',
+        leasing: 'Leasing',
+        faktoring: 'Faktoring',
+        takibe_alinmis_ticari_krediler: 'Takibe Alınmış Ticari Krediler',
+        takibe_alinmis_leasing: 'Takibe Alınmış Leasing',
+        takibe_alinmis_faktoring: 'Takibe Alınmış Faktoring',
+      };
+
+      lines.push(hr('═'));
+      lines.push('  FİNDEKS RİSK RAPORU');
+      lines.push(hr('═'));
+
+      for (const [key, label] of Object.entries(sectionLabels)) {
+        if (!(key in data)) continue;
+        const val = data[key];
+        // Skip empty
+        if (val === null || val === undefined) continue;
+        if (typeof val === 'object' && !Array.isArray(val) && Object.keys(val).length === 0) continue;
+        if (Array.isArray(val) && val.length === 0) continue;
+
+        section(label);
+
+        // banka_bazli / finansman_bazli: array of bank objects
+        if (key === 'banka_bazli_limit_risk' || key === 'finansman_bazli_limit_risk') {
+          if (Array.isArray(val)) {
+            for (const bank of val) {
+              const name = bank.banka || bank.kurum || bank.name || '(bilinmeyen)';
+              subSection(name);
+              // Show summary fields
+              const summary = {};
+              for (const [bk, bv] of Object.entries(bank)) {
+                if (bk === 'banka' || bk === 'kurum' || bk === 'name' || bk === 'detay' || bk === 'krediler') continue;
+                summary[bk] = bv;
+              }
+              if (Object.keys(summary).length > 0) kvBlock(summary, 6);
+              // Show detail table
+              const detail = bank.detay || bank.krediler;
+              if (Array.isArray(detail) && detail.length > 0) {
+                lines.push('');
+                tableBlock(detail, 6);
+              }
+            }
+          } else {
+            renderValue(val);
+          }
+          continue;
+        }
+
+        renderValue(val);
+      }
+
+      // Render any remaining unknown keys
+      for (const key of Object.keys(data)) {
+        if (key in sectionLabels) continue;
+        // Skip metadata
+        if (['filename', 'processing_time_sec', 'method_used', 'page_count'].includes(key)) continue;
+        section(key);
+        renderValue(data[key]);
+      }
+
+      return lines.join('\n');
+    }
+
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+       OCR GRID MAPPER
+       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    function pageToGridText(page, charWidth, lineHeight, yThreshold) {
+      const items = [];
+      const tableBoxes = [];
+
+      // Tables
       const tables = page.tables || [];
       for (const tbl of tables) {
         const rows = tbl.rows || [];
@@ -145,30 +355,23 @@
             let y = 0, x = 0;
             if (cellsBbox && cellsBbox[ri] && cellsBbox[ri][ci]) {
               const cb = parseBbox(cellsBbox[ri][ci]);
-              if (cb) {
-                y = cb.y0; x = cb.x0;
-                tableBoxes.push(cb);
-              }
-            } else {
-              if (tb) {
-                const rowH = (tb.y1 - tb.y0) / Math.max(1, rows.length);
-                const colW = (tb.x1 - tb.x0) / Math.max(1, cells.length);
-                y = tb.y0 + ri * rowH;
-                x = tb.x0 + ci * colW;
-              }
+              if (cb) { y = cb.y0; x = cb.x0; tableBoxes.push(cb); }
+            } else if (tb) {
+              const rowH = (tb.y1 - tb.y0) / Math.max(1, rows.length);
+              const colW = (tb.x1 - tb.x0) / Math.max(1, cells.length);
+              y = tb.y0 + ri * rowH;
+              x = tb.x0 + ci * colW;
             }
             if (cellText) items.push({ y, x, text: cellText });
           }
         }
       }
 
-      // 2) Metin blokları: tablo hücreleriyle çakışanları at (double yazımı önle)
+      // Text blocks (filter table overlaps)
       const textBlocks = page.text_blocks || [];
       function overlapRatio(inner, outer) {
-        const xi = Math.max(inner.x0, outer.x0);
-        const yi = Math.max(inner.y0, outer.y0);
-        const xj = Math.min(inner.x1, outer.x1);
-        const yj = Math.min(inner.y1, outer.y1);
+        const xi = Math.max(inner.x0, outer.x0), yi = Math.max(inner.y0, outer.y0);
+        const xj = Math.min(inner.x1, outer.x1), yj = Math.min(inner.y1, outer.y1);
         if (xj <= xi || yj <= yi) return 0;
         const aInner = Math.max(1, (inner.x1 - inner.x0) * (inner.y1 - inner.y0));
         return ((xj - xi) * (yj - yi)) / aInner;
@@ -178,236 +381,259 @@
         if (!b) continue;
         const text = (blk.text != null ? String(blk.text) : '').replace(/\r\n/g, '\n').trim();
         if (!text) continue;
-        const isInsideTable = tableBoxes.some(tb => overlapRatio(b, tb) >= 0.5);
-        if (isInsideTable) continue;
-        items.push({ y: b.y0, x: b.x0, text: text });
+        if (tableBoxes.some(tb => overlapRatio(b, tb) >= 0.5)) continue;
+        items.push({ y: b.y0, x: b.x0, text });
       }
 
       if (items.length === 0) return '';
 
-      // Önce y'ye, sonra x'e göre sırala
-      items.sort((a, b) => {
-        if (Math.abs(a.y - b.y) <= yThreshold) return a.x - b.x;
-        return a.y - b.y;
-      });
+      items.sort((a, b) => Math.abs(a.y - b.y) <= yThreshold ? a.x - b.x : a.y - b.y);
 
-      // Satırları grupla (y birbirine yThreshold içinde yakınsa aynı satır)
+      // Group rows
       const rows = [];
-      let currentRow = [];
-      let currentRowY = items[0].y;
-
+      let currentRow = [], currentRowY = items[0].y;
       for (const it of items) {
-        if (it.y - currentRowY <= yThreshold) {
+        if (Math.abs(it.y - currentRowY) <= yThreshold) {
           currentRow.push(it);
         } else {
           if (currentRow.length) rows.push(currentRow);
-          currentRow = [it];
-          currentRowY = it.y;
+          currentRow = [it]; currentRowY = it.y;
         }
       }
       if (currentRow.length) rows.push(currentRow);
 
-      // Her satırda: sütun = x/charWidth; çakışmayı önle — üzerine yazma, sağa kaydır, bloklar arası 1 boşluk
+      // Build lines
       const lines = [];
       for (const row of rows) {
         row.sort((a, b) => a.x - b.x);
         let lastEnd = 0;
         const segments = row.map(it => {
           const wantCol = Math.round(it.x / charWidth);
-          const col = wantCol <= lastEnd ? lastEnd + 1 : wantCol; // en az 1 boşluk ara
+          const col = wantCol <= lastEnd ? lastEnd + 1 : wantCol;
           lastEnd = col + it.text.length;
           return { col, text: it.text };
         });
         let maxEnd = 0;
-        for (const s of segments) {
-          const end = s.col + s.text.length;
-          if (end > maxEnd) maxEnd = end;
-        }
+        for (const s of segments) { const end = s.col + s.text.length; if (end > maxEnd) maxEnd = end; }
         const lineArr = Array(maxEnd).fill(' ');
         for (const s of segments) {
-          const t = s.text;
-          for (let i = 0; i < t.length && s.col + i < lineArr.length; i++) {
-            lineArr[s.col + i] = t[i];
-          }
+          for (let i = 0; i < s.text.length && s.col + i < lineArr.length; i++)
+            lineArr[s.col + i] = s.text[i];
         }
         lines.push(lineArr.join('').replace(/\s+$/, ''));
       }
       return lines.join('\n');
     }
 
-    function clamp(n, minV, maxV) {
-      return Math.max(minV, Math.min(maxV, n));
-    }
-
+    /* ────── auto estimate ────── */
     function median(arr) {
-      if (!Array.isArray(arr) || arr.length === 0) return null;
+      if (!arr || arr.length === 0) return null;
       const a = arr.slice().sort((x, y) => x - y);
       const mid = Math.floor(a.length / 2);
-      return (a.length % 2 === 0) ? (a[mid - 1] + a[mid]) / 2 : a[mid];
+      return a.length % 2 === 0 ? (a[mid - 1] + a[mid]) / 2 : a[mid];
     }
+    function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
 
-    /**
-     * Otomatik charWidth/yThreshold hesabı:
-     * - charWidth: her item için (bbox genişliği / metin uzunluğu) medyanı
-     * - yThreshold: bbox yüksekliği (y1-y0) medyanından satır toleransı
-     *
-     * Not: pageToGridText zaten tables hücre bbox’larını kullanıyor; burada da aynı
-     * kaynakları kullanıyoruz (infer_source=include_tables).
-     */
     function autoEstimateParams(page) {
-      const textBlocks = page.text_blocks || [];
-      const tables = page.tables || [];
-
-      const charWidthCandidates = [];
-      const heightCandidates = [];
-
-      // 1) text_blocks
-      for (const blk of textBlocks) {
-        const b = parseBbox(blk.bbox);
-        if (!b) continue;
-        const text = (blk.text != null ? String(blk.text) : '').replace(/\r\n/g, '\n').trim();
-        if (!text || text.length < 2) continue;
-        const w = Math.max(0, (b.x1 - b.x0));
-        const h = Math.max(0, (b.y1 - b.y0));
+      const cws = [], hts = [];
+      for (const blk of (page.text_blocks || [])) {
+        const b = parseBbox(blk.bbox); if (!b) continue;
+        const text = (blk.text != null ? String(blk.text) : '').trim();
+        if (text.length < 2) continue;
+        const w = b.x1 - b.x0, h = b.y1 - b.y0;
         if (w <= 0 || h <= 0) continue;
         const cw = w / text.length;
-        // Outlier filtre (pt ölçeğinde)
-        if (cw >= 0.5 && cw <= 50) charWidthCandidates.push(cw);
-        heightCandidates.push(h);
+        if (cw >= 0.5 && cw <= 50) cws.push(cw);
+        hts.push(h);
       }
-
-      // 2) tables: hücre bbox’ları
-      for (const tbl of tables) {
-        const rows = tbl.rows || [];
-        const cellsBbox = tbl.cells_bbox || null;
+      for (const tbl of (page.tables || [])) {
+        const rows = tbl.rows || [], cellsBbox = tbl.cells_bbox;
         for (let ri = 0; ri < rows.length; ri++) {
-          const row = rows[ri];
-          const cells = Array.isArray(row) ? row : [row];
+          const cells = Array.isArray(rows[ri]) ? rows[ri] : [rows[ri]];
           for (let ci = 0; ci < cells.length; ci++) {
-            const cellText = String(cells[ci] ?? '').trim();
-            if (!cellText || cellText.length < 2) continue;
-            let b = null;
-            if (cellsBbox && cellsBbox[ri] && cellsBbox[ri][ci]) {
-              b = parseBbox(cellsBbox[ri][ci]);
-            } else {
-              b = parseBbox(tbl.bbox);
-            }
+            const t = String(cells[ci] ?? '').trim(); if (t.length < 2) continue;
+            let b = (cellsBbox && cellsBbox[ri] && cellsBbox[ri][ci]) ? parseBbox(cellsBbox[ri][ci]) : parseBbox(tbl.bbox);
             if (!b) continue;
-            const w = Math.max(0, (b.x1 - b.x0));
-            const h = Math.max(0, (b.y1 - b.y0));
+            const w = b.x1 - b.x0, h = b.y1 - b.y0;
             if (w <= 0 || h <= 0) continue;
-            const cw = w / cellText.length;
-            if (cw >= 0.5 && cw <= 50) charWidthCandidates.push(cw);
-            heightCandidates.push(h);
+            const cw = w / t.length;
+            if (cw >= 0.5 && cw <= 50) cws.push(cw);
+            hts.push(h);
           }
         }
       }
+      return {
+        charWidth: clamp(Math.round((median(cws) ?? 10) * 10) / 10, 2, 40),
+        lineHeight: clamp(Math.round(median(hts) ?? 14), 4, 50),
+        yThreshold: clamp(Math.round((median(hts) ?? 13) * 0.3), 1, 40),
+      };
+    }
 
-      // Fallback: manuel inputlar (boş veri varsa)
-      const manualCharWidth = Number(document.getElementById('paramCharWidth').value) || 10;
-      const manualYThreshold = Number(document.getElementById('paramYThreshold').value) || 4;
+    /* ────── main render ────── */
+    let manualMode = false;
 
-      const cwMed = median(charWidthCandidates);
-      const hMed = median(heightCandidates);
-
-      const charWidth = clamp(Math.round(cwMed ?? manualCharWidth), 4, 24);
-      const yThreshold = clamp(Math.round((hMed ?? (manualYThreshold)) * 0.30), 1, 20);
-
-      return { charWidth, yThreshold };
+    function showOutput(text) {
+      placeholderBox.classList.add('hidden');
+      textOutput.style.display = '';
+      textOutput.value = text;
+    }
+    function showPlaceholder() {
+      placeholderBox.classList.remove('hidden');
+      textOutput.style.display = 'none';
+      textOutput.value = '';
     }
 
     function render() {
       const raw = jsonInput.value.trim();
-      outputWrap.classList.remove('empty');
-      textOutput.value = '';
-
       if (!raw) {
-        outputWrap.classList.add('empty');
+        showPlaceholder();
+        formatBadge.style.display = 'none';
+        paramsBar.style.display = 'none';
+        statInfo.textContent = 'Hazır';
         return;
       }
 
       let data;
-      try {
-        data = JSON.parse(raw);
-      } catch (e) {
-        textOutput.value = 'Hata: Geçersiz JSON – ' + e.message;
+      try { data = JSON.parse(raw); } catch (e) {
+        showOutput('Hata: Geçersiz JSON – ' + e.message);
         return;
       }
 
-      const pages = data.pages;
-      if (!Array.isArray(pages) || pages.length === 0) {
-        textOutput.value = 'Hata: "pages" dizisi bulunamadı veya boş.';
+      const fmt = detectFormat(data);
+
+      // Badge
+      formatBadge.style.display = '';
+      if (fmt === 'findeks') {
+        formatBadge.className = 'format-badge findeks';
+        formatBadge.textContent = 'Findeks';
+        paramsBar.style.display = 'none';
+      } else if (fmt === 'ocr') {
+        formatBadge.className = 'format-badge ocr';
+        formatBadge.textContent = 'OCR';
+        paramsBar.style.display = 'flex';
+      } else {
+        formatBadge.className = 'format-badge unknown';
+        formatBadge.textContent = 'Bilinmeyen format';
+        paramsBar.style.display = 'none';
+      }
+
+      /* ── Findeks ── */
+      if (fmt === 'findeks') {
+        const txt = renderFindeks(data);
+        showOutput(txt);
+        const sections = Object.keys(data).filter(k => !['filename','processing_time_sec','method_used','page_count'].includes(k));
+        statInfo.textContent = sections.length + ' bölüm · Findeks export';
         return;
       }
 
-      // lineHeight şu an pageToGridText içinde kullanılmıyor, ama UI'da kalsın.
-      const lineHeight = Math.max(6, Math.min(30, Number(document.getElementById('paramLineHeight').value) || 12));
+      /* ── OCR ── */
+      if (fmt === 'ocr') {
+        const pages = data.pages;
+        const isAuto = $('paramAuto').checked;
 
-      const pageTexts = [];
-      for (let i = 0; i < pages.length; i++) {
-        const page = pages[i];
-        const estimated = autoEstimateParams(page);
-        // Görünürlük için input değerlerini güncelle
-        document.getElementById('paramCharWidth').value = estimated.charWidth;
-        document.getElementById('paramYThreshold').value = estimated.yThreshold;
-        const txt = pageToGridText(page, estimated.charWidth, lineHeight, estimated.yThreshold);
-        if (pages.length > 1) {
-          pageTexts.push('——— Sayfa ' + (page.page_number ?? i + 1) + ' ———');
-          pageTexts.push(txt);
-        } else {
+        const pageTexts = [];
+        let totalBlocks = 0;
+
+        for (let i = 0; i < pages.length; i++) {
+          const page = pages[i];
+          totalBlocks += (page.text_blocks || []).length + (page.tables || []).reduce((s, t) => s + (t.rows || []).length, 0);
+
+          let charWidth, lineHeight, yThreshold;
+          if (isAuto) {
+            const est = autoEstimateParams(page);
+            charWidth = est.charWidth;
+            lineHeight = est.lineHeight;
+            yThreshold = est.yThreshold;
+            // Update UI (only from last page to avoid flicker)
+            if (i === pages.length - 1) {
+              $('paramCharWidth').value = charWidth;
+              $('paramLineHeight').value = lineHeight;
+              $('paramYThreshold').value = yThreshold;
+            }
+          } else {
+            charWidth = parseFloat($('paramCharWidth').value) || 10;
+            lineHeight = parseFloat($('paramLineHeight').value) || 14;
+            yThreshold = parseFloat($('paramYThreshold').value) || 4;
+          }
+
+          const txt = pageToGridText(page, charWidth, lineHeight, yThreshold);
+          if (pages.length > 1) {
+            pageTexts.push('——— Sayfa ' + (page.page_number ?? i + 1) + ' ———');
+          }
           pageTexts.push(txt);
         }
+        const result = pageTexts.join('\n\n').trim() || '(Metin bulunamadı)';
+        showOutput(result);
+        statInfo.textContent = pages.length + ' sayfa · ' + totalBlocks + ' blok';
+        return;
       }
-      textOutput.value = pageTexts.join('\n\n').trim() || '(Bu sayfada metin yok)';
+
+      /* ── Unknown: try to pretty print ── */
+      showOutput(JSON.stringify(data, null, 2));
+      statInfo.textContent = 'Bilinmeyen format — ham JSON gösteriliyor';
     }
 
-    document.getElementById('btnSample').onclick = function() {
+    /* ────── event handlers ────── */
+    $('paramAuto').onchange = function () {
+      const isAuto = this.checked;
+      $('paramCharWidth').disabled = isAuto;
+      $('paramLineHeight').disabled = isAuto;
+      $('paramYThreshold').disabled = isAuto;
+      render();
+    };
+
+    $('paramCharWidth').onchange = render;
+    $('paramLineHeight').onchange = render;
+    $('paramYThreshold').onchange = render;
+    jsonInput.addEventListener('input', render);
+    jsonInput.addEventListener('paste', () => setTimeout(render, 0));
+
+    $('btnClear').onclick = () => { jsonInput.value = ''; render(); };
+    $('btnFormat').onclick = () => {
+      try {
+        const d = JSON.parse(jsonInput.value);
+        jsonInput.value = JSON.stringify(d, null, 2);
+      } catch (e) { /* ignore */ }
+    };
+
+    $('btnSample').onclick = function () {
       const sample = {
-        "filename": "sample.pdf",
-        "method_used": "pdftext",
-        "processing_time_sec": 0.5,
-        "pages": [{
-          "page_number": 1,
-          "content": "Fatura No: 12345\nTarih: 01.03.2025",
-          "text_blocks": [
-            { "text": "Fatura No: 12345", "bbox": { "x0": 72, "y0": 100, "x1": 220, "y1": 118 } },
-            { "text": "Tarih: 01.03.2025", "bbox": { "x0": 72, "y0": 125, "x1": 200, "y1": 143 } }
+        filename: 'sample.pdf', method_used: 'pdftext', processing_time_sec: 0.5,
+        pages: [{
+          page_number: 1,
+          content: 'Fatura No: 12345\nTarih: 01.03.2025',
+          text_blocks: [
+            { text: 'Fatura No: 12345', bbox: { x0: 72, y0: 100, x1: 220, y1: 118 } },
+            { text: 'Tarih: 01.03.2025', bbox: { x0: 72, y0: 125, x1: 200, y1: 143 } },
+            { text: 'ACME Ltd.', bbox: { x0: 350, y0: 100, x1: 450, y1: 118 } },
           ],
-          "tables": [{
-            "rows": [["Ürün", "Adet", "Tutar"], ["Kalem", "2", "20 TL"], ["Defter", "1", "15 TL"]],
-            "bbox": { "x0": 72, "y0": 200, "x1": 350, "y1": 280 },
-            "cells_bbox": [
-              [{ "x0": 72, "y0": 200, "x1": 158, "y1": 220 }, { "x0": 158, "y0": 200, "x1": 244, "y1": 220 }, { "x0": 244, "y0": 200, "x1": 350, "y1": 220 }],
-              [{ "x0": 72, "y0": 220, "x1": 158, "y1": 240 }, { "x0": 158, "y0": 220, "x1": 244, "y1": 240 }, { "x0": 244, "y0": 220, "x1": 350, "y1": 240 }],
-              [{ "x0": 72, "y0": 240, "x1": 158, "y1": 280 }, { "x0": 158, "y0": 240, "x1": 244, "y1": 280 }, { "x0": 244, "y0": 240, "x1": 350, "y1": 280 }]
+          tables: [{
+            rows: [['Ürün', 'Adet', 'Tutar'], ['Kalem', '2', '20 TL'], ['Defter', '1', '15 TL']],
+            bbox: { x0: 72, y0: 200, x1: 350, y1: 280 },
+            cells_bbox: [
+              [{ x0: 72, y0: 200, x1: 158, y1: 220 }, { x0: 158, y0: 200, x1: 244, y1: 220 }, { x0: 244, y0: 200, x1: 350, y1: 220 }],
+              [{ x0: 72, y0: 220, x1: 158, y1: 240 }, { x0: 158, y0: 220, x1: 244, y1: 240 }, { x0: 244, y0: 220, x1: 350, y1: 240 }],
+              [{ x0: 72, y0: 240, x1: 158, y1: 280 }, { x0: 158, y0: 240, x1: 244, y1: 280 }, { x0: 244, y0: 240, x1: 350, y1: 280 }],
             ]
           }],
-          "page_width": 595,
-          "page_height": 842
+          page_width: 595, page_height: 842
         }]
       };
       jsonInput.value = JSON.stringify(sample, null, 2);
       render();
     };
 
-    document.getElementById('btnUpload').onclick = function() { fileUpload.click(); };
-    fileUpload.onchange = function() {
+    $('btnUpload').onclick = () => fileUpload.click();
+    fileUpload.onchange = function () {
       const f = fileUpload.files && fileUpload.files[0];
       if (!f) return;
       const r = new FileReader();
-      r.onload = function() { jsonInput.value = r.result; render(); };
+      r.onload = () => { jsonInput.value = r.result; render(); };
       r.readAsText(f);
       fileUpload.value = '';
     };
 
-    document.getElementById('paramCharWidth').onchange = render;
-    document.getElementById('paramLineHeight').onchange = render;
-    document.getElementById('paramYThreshold').onchange = render;
-
-    jsonInput.addEventListener('input', function() { render(); });
-    jsonInput.addEventListener('paste', function() { setTimeout(render, 0); });
-
-    document.getElementById('btnDownloadTxt').onclick = function() {
+    $('btnDownloadTxt').onclick = function () {
       const txt = textOutput.value;
       if (!txt) return;
       const blob = new Blob([txt], { type: 'text/plain; charset=utf-8' });
