@@ -132,7 +132,7 @@ def _check_tesseract() -> bool:
 
 def _check_rapidocr() -> bool:
     try:
-        from rapidocr_onnxruntime import RapidOCR  # noqa: F401
+        from rapidocr import RapidOCR  # noqa: F401
         return True
     except Exception:
         return False

@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 from typing import Any
-from rapidocr_onnxruntime import RapidOCR
+from rapidocr import RapidOCR
 import re
 
 from app.config import (
@@ -37,10 +37,10 @@ def _get_rapid_engine():
         try:
             # det_limit_side_len: taranmış sayfa boyutu (960 hız/kalite dengesi)
             # text_score: 0.4 — Türkçe/Latin karakterlerde daha toleranslı tanıma
-            _rapid_engine = RapidOCR(
-                det_limit_side_len=RAPIDOCR_DET_LIMIT_SIDE_LEN,
-                text_score=RAPIDOCR_TEXT_SCORE,
-            )
+            _rapid_engine = RapidOCR(params={
+                "Det": {"limit_side_len": RAPIDOCR_DET_LIMIT_SIDE_LEN},
+            })
+            _rapid_engine.text_score = RAPIDOCR_TEXT_SCORE
         except Exception:
             pass
     return _rapid_engine
@@ -134,18 +134,15 @@ def _run_rapidocr(
 
     # 3. OCR İşlemi
     # det_limit_side_len zaten engine içinde set edildiği için burada hızlı çalışacaktır.
-    result, _ = engine(img)
-    
-    if not result:
+    result = engine(img, text_score=RAPIDOCR_TEXT_SCORE)
+
+    if not result or not result.boxes:
         return [], w, h
 
     # 4. Koordinatları topla + katı filtre uygula
     out = []
-    for line in result:
-        if len(line) < 2:
-            continue
-        box, text = line[0], line[1]
-        score = float(line[2]) if len(line) > 2 and line[2] is not None else None
+    for box, text, score in zip(result.boxes, result.txts, result.scores):
+        score = float(score) if score is not None else None
 
         text = _clean_text(text)
         if not text:
