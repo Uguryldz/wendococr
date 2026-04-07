@@ -1,3 +1,6 @@
+volumes:
+  ocr_uploads:
+
 services:
   wendococr:
     build:
@@ -19,6 +22,8 @@ services:
       PADDLEOCR_LOW_MAX_SIDE: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
+    volumes:
+      - ocr_uploads:/tmp/wendococr
     networks:
       - uinfra
     deploy:
@@ -26,6 +31,34 @@ services:
         limits:
           cpus: '4.0'
           memory: 8G
+
+  wendococr-worker:
+    image: uguryldz/wendococr:v1.0.0
+    restart: unless-stopped
+    command: ["bash", "entrypoint.sh", "worker"]
+    environment:
+      UPLOAD_DIR: /tmp/wendococr
+      REDIS_URL: redis://redis:6379/1
+      OCR_MAX_WORKERS: "3"
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      FLAGS_use_mkldnn: "0"
+      OCR_DPI_PADDLEOCR_LOW: "150"
+      PADDLEOCR_LOW_MAX_SIDE: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
+    volumes:
+      - ocr_uploads:/tmp/wendococr
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 30s
+    networks:
+      - uinfra
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
 
 networks:
   uinfra:

@@ -39,4 +39,4 @@ EXPOSE 8099
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=30s \
     CMD curl -sf http://localhost:8099/health || exit 1
 
-ENTRYPOINT ["bash", "entrypoint.sh"]
+CMD ["bash", "entrypoint.sh"]
