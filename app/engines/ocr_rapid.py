@@ -10,6 +10,8 @@ from typing import Any
 from rapidocr import RapidOCR
 import re
 
+from app.utils.text_layout import content_from_text_blocks_with_bbox
+
 from app.config import (
     RAPIDOCR_DET_LIMIT_SIDE_LEN,
     RAPIDOCR_ENHANCE,
@@ -38,7 +40,7 @@ def _get_rapid_engine():
             # det_limit_side_len: taranmış sayfa boyutu (960 hız/kalite dengesi)
             # text_score: 0.4 — Türkçe/Latin karakterlerde daha toleranslı tanıma
             _rapid_engine = RapidOCR(params={
-                "Det": {"limit_side_len": RAPIDOCR_DET_LIMIT_SIDE_LEN},
+                "Det.limit_side_len": RAPIDOCR_DET_LIMIT_SIDE_LEN,
             })
             _rapid_engine.text_score = RAPIDOCR_TEXT_SCORE
         except Exception:
@@ -105,38 +107,27 @@ def _run_rapidocr(
 
     h, w = img.shape[:2]
 
-    # 2. Ön İşleme (DARBOĞAZ BURASI OLABİLİR)
-    # Eğer hala yavaşsa: grayscale=False, threshold=False yaparak dene.
-    # Yüksek çözünürlükte threshold işlemi CPU'yu çok yorar.
-    if max(h, w) > 2000:
-        # Çok büyük resimlerde threshold açmak detay kaybı yapabilir.
-        if len(img.shape) == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        if RAPIDOCR_ENHANCE:
-            img = _enhance_for_turkish_rapid(img)
-    else:
+    # 2. Hafif ön işleme: sadece Türkçe diacritik koruması (CLAHE)
+    #    RapidOCR kendi preprocessing'ini yapıyor, ağır threshold/upscale gereksiz.
+    if RAPIDOCR_ENHANCE and max(h, w) < 2000:
         if len(img.shape) == 3:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
-        if RAPIDOCR_ENHANCE:
-            gray = _enhance_for_turkish_rapid(gray)
-        img = preprocess_image(
-            cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR),
-            grayscale=True,
-            threshold=RAPIDOCR_THRESHOLD,
-            deskew=False,
-        )
-
-    # RapidOCR 3 kanal (BGR) beklediği için gerekirse dönüştür
-    if len(img.shape) == 2:
+        try:
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            gray = clahe.apply(gray)
+        except Exception:
+            pass
+        img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    elif len(img.shape) == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
     # 3. OCR İşlemi
     # det_limit_side_len zaten engine içinde set edildiği için burada hızlı çalışacaktır.
     result = engine(img, text_score=RAPIDOCR_TEXT_SCORE)
 
-    if not result or not result.boxes:
+    if result is None or result.boxes is None or len(result.boxes) == 0:
         return [], w, h
 
     # 4. Koordinatları topla + katı filtre uygula
@@ -191,7 +182,6 @@ def extract(
         return []
 
     text_blocks = [{"text": t, "bbox": b} for b, t in lines_bbox]
-    from app.utils.text_layout import content_from_text_blocks_with_bbox
     content = content_from_text_blocks_with_bbox(text_blocks)
 
     return [{

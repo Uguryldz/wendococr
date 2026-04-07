@@ -1,37 +1,74 @@
 services:
+  # ─── Redis (ortak kuyruk) ───
+  redis:
+    image: redis:7-alpine
+    container_name: wendococr-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ─── Main (sadece API — OCR yapmaz, isi Redis'e atar) ───
   wendococr:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        PRELOAD_PADDLE_MODELS: "1"
+        PRELOAD_PADDLE_MODELS: "0"
     image: uguryldz/wendococr:v1.0.0
     container_name: wendococr
     restart: unless-stopped
     ports:
       - "8099:8099"
     environment:
-      # Genel
       UPLOAD_DIR: /tmp/wendococr
+      REDIS_URL: redis://redis:6379/0
+      OCR_QUEUE_MAX_SIZE: "100"
+      OCR_QUEUE_TIMEOUT: "120"
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # ─── Worker (sadece OCR isler — HTTP yok) ───
+  wendococr-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PRELOAD_PADDLE_MODELS: "1"
+    image: uguryldz/wendococr:v1.0.0
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       FLAGS_use_mkldnn: "0"
-      # Low PaddleOCR ayarlari (RAM korumali)
       OCR_DPI_PADDLEOCR_LOW: "150"
       PADDLEOCR_LOW_MAX_SIDE: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
-    volumes:
-      - wendococr_uploads:/tmp/wendococr
-
-    ## Kaynak Yönetimi buradan yapılacak ##
+    command: python -m app.core.worker_pool
+    depends_on:
+      redis:
+        condition: service_healthy
     deploy:
+      replicas: 3
       resources:
         limits:
-          cpus: '8.0'
-          memory: 16G
-        reservations:
           cpus: '4.0'
-          memory: 8G
+          memory: 6G
+        reservations:
+          cpus: '2.0'
+          memory: 3G
 
 volumes:
-  wendococr_uploads:
+  redis_data:

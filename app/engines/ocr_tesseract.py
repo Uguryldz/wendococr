@@ -33,26 +33,21 @@ from app.config import (
 )
 from app.utils.image_preprocess import preprocess_image, load_image
 from app.utils.turkish_postprocess import postprocess_turkish
+from app.utils.text_layout import content_from_text_blocks_with_bbox
 
 
 def _enhance_for_turkish_tesseract(gray: np.ndarray) -> np.ndarray:
     """
     Türkçe karakterleri koruyarak Tesseract'a daha okunur görüntü vermek için hafif iyileştirme.
-    - Küçük görüntülerde 2x büyütme (INTER_CUBIC)
-    - CLAHE ile lokal kontrast
+    - CLAHE ile lokal kontrast (diacritik noktaları daha belirgin)
     """
     if gray is None or gray.size == 0:
         return gray
-    h, w = gray.shape[:2]
-    out = gray
-    if max(h, w) < 1200:
-        out = cv2.resize(out, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
     try:
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        out = clahe.apply(out)
+        return clahe.apply(gray)
     except Exception:
-        pass
-    return out
+        return gray
 
 
 def _run_tesseract(
@@ -73,13 +68,15 @@ def _run_tesseract(
     else:
         return [], 0, 0
     h, w = img.shape[:2]
-    # 1) Griye çevir + (opsiyonel) iyileştirme + (opsiyonel) threshold/deskew
+    # 1) Griye çevir + iyileştirme + threshold/deskew
     if len(img.shape) == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img
     if TESSERACT_ENHANCE:
-        img = _enhance_for_turkish_tesseract(img)
+        gray = _enhance_for_turkish_tesseract(gray)
     img = preprocess_image(
-        cv2.cvtColor(img, cv2.COLOR_GRAY2BGR),
+        cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR),
         grayscale=True,
         threshold=TESSERACT_THRESHOLD,
         deskew=TESSERACT_DESKEW,
@@ -180,7 +177,6 @@ def extract(
         return []
 
     text_blocks = [{"text": t, "bbox": b} for b, t in lines_bbox]
-    from app.utils.text_layout import content_from_text_blocks_with_bbox
     content = content_from_text_blocks_with_bbox(text_blocks)
     return [{
         "page_number": page_no,

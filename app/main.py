@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.api import router as api_router
-from app.config import CORS_ORIGINS, DEBUG, LOG_LEVEL
+from app.config import CORS_ORIGINS, DEBUG, LOG_LEVEL, OCR_MAX_WORKERS
 
 # Logging
 logging.basicConfig(
@@ -83,6 +83,12 @@ app.add_middleware(
 app.include_router(api_router)
 
 
+@app.on_event("shutdown")
+async def shutdown_pool():
+    from app.core.worker_pool import get_pool
+    get_pool().shutdown()
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.exception("Unexpected error: %s", exc)
@@ -92,15 +98,21 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/", tags=["Sistem"], summary="Servis bilgisi ve endpoint haritası")
 def root():
-    """Tüm endpoint'lerin kategorize listesi."""
+    """Tüm endpoint'lerin kategorize listesi + canlı worker durumu."""
+    from app.core.worker_pool import get_pool
+    pool = get_pool()
     return {
         "service": "wendococr",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "docs": "/docs",
         "health": "/health",
+        "workers": pool.status(),
         "endpoints": {
             "otomatik": {
                 "/v1/auto": "Akıllı motor seçimi",
+            },
+            "fatura": {
+                "/v1/fatura": "Fatura metin çıkarımı (PDF/resim)",
             },
             "dijital_pdf": {
                 "/v1/pdftext": "PDF metin çıkarımı",

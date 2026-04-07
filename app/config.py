@@ -1,5 +1,16 @@
 """Uygulama ayarları (sabit değerler, .env kullanılmaz)."""
+import os
 from pathlib import Path
+
+# Worker / Kuyruk
+OCR_MAX_WORKERS = int(os.environ.get("OCR_MAX_WORKERS", "3"))
+OCR_QUEUE_MAX_SIZE = int(os.environ.get("OCR_QUEUE_MAX_SIZE", "20"))
+OCR_QUEUE_TIMEOUT = int(os.environ.get("OCR_QUEUE_TIMEOUT", "120"))  # saniye
+
+# Redis (dağıtık mod)
+REDIS_URL = os.environ.get("REDIS_URL", "")  # boş = local mod (Redis yok)
+REDIS_QUEUE_NAME = os.environ.get("REDIS_QUEUE_NAME", "wendococr:jobs")
+REDIS_RESULT_TTL = int(os.environ.get("REDIS_RESULT_TTL", "300"))  # sonuç saklama süresi (sn)
 
 # Geçici dosyalar
 UPLOAD_DIR = Path("/tmp/wendococr")
@@ -74,7 +85,7 @@ ICR_USER_DEFINED_DPI = "300"
 
 # Desteklenen mode değerleri
 EXTRACT_MODES = {
-    "auto", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets",
+    "auto", "fatura", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets",
     "pdftxtimage", "pdfimagetable", "pdfimagepaddleocrlow",
     "icr", "icrpaddle",
 }

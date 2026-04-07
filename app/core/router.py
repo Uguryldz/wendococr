@@ -23,45 +23,34 @@ MIN_TEXT_LENGTH_SEARCHABLE = 20
 MIN_TABLE_ROWS_FOR_TABLE_ENGINE = 2
 
 
-def _page_has_text_layer(pdf_path: Path, page_index: int) -> bool:
-    """PyMuPDF ile sayfada metin katmanı var mı (lazy import)."""
-    try:
-        import fitz
-        doc = fitz.open(pdf_path)
-        page = doc[page_index]
-        text = page.get_text().strip()
-        doc.close()
-        return len(text) >= MIN_TEXT_LENGTH_SEARCHABLE
-    except Exception:
-        return False
-
-
-def _page_is_table_heavy(pdf_path: Path, page_index: int) -> bool:
-    """pdfplumber ile sayfada anlamlı tablo var mı (lazy import)."""
-    try:
-        import pdfplumber
-        with pdfplumber.open(pdf_path) as pdf:
-            if page_index >= len(pdf.pages):
-                return False
-            page = pdf.pages[page_index]
-            tables = page.extract_tables() or []
-            for t in tables:
-                if t and len(t) >= MIN_TABLE_ROWS_FOR_TABLE_ENGINE:
-                    return True
-            return False
-    except Exception:
-        return False
-
-
-def _decide_engine_for_pdf_page(pdf_path: Path, page_index: int) -> str:
-    """Tek bir PDF sayfası için engine seçer."""
-    if _page_has_text_layer(pdf_path, page_index):
-        if _page_is_table_heavy(pdf_path, page_index):
-            return "pdftexttable"
-        return "pdftext"
+def _analyze_pdf_page(fitz_page) -> str:
+    """Tek bir PDF sayfası için engine seçer (zaten açık doc üzerinde)."""
+    text = fitz_page.get_text().strip()
+    if len(text) >= MIN_TEXT_LENGTH_SEARCHABLE:
+        # Metin var — tablo kontrolü yap (pdfplumber lazy)
+        return "pdftext_or_table"  # tablo kontrolü ayrıca yapılacak
     if AUTO_FORCE_PADDLEOCR_LOW:
         return "pdfimagepaddleocrlow"
     return "pdfimagev5"
+
+
+def _check_tables_pdfplumber(pdf_path: Path, page_indices: list[int]) -> set[int]:
+    """pdfplumber ile tablo ağırlıklı sayfaları toplu kontrol eder (tek açılış)."""
+    table_pages = set()
+    try:
+        import pdfplumber
+        with pdfplumber.open(pdf_path) as pdf:
+            for i in page_indices:
+                if i >= len(pdf.pages):
+                    continue
+                tables = pdf.pages[i].extract_tables() or []
+                for t in tables:
+                    if t and len(t) >= MIN_TABLE_ROWS_FOR_TABLE_ENGINE:
+                        table_pages.add(i)
+                        break
+    except Exception:
+        pass
+    return table_pages
 
 
 def process_document(
@@ -76,6 +65,10 @@ def process_document(
     """
     if mode not in EXTRACT_MODES:
         mode = "auto"
+    is_fatura = (mode == "fatura")
+    if is_fatura:
+        mode = "auto"
+
     path = Path(file_path)
     if not path.exists():
         return [], ""
@@ -107,7 +100,8 @@ def process_document(
         return _run_ocr_pdf_or_image(path, content_type, engine="icr", page_numbers=page_numbers)
     if mode == "icrpaddle":
         return _run_ocr_pdf_or_image(path, content_type, engine="icrpaddle", page_numbers=page_numbers)
-    # --- AUTO ---
+
+    # --- FATURA / AUTO ---
     if content_type and content_type.lower() in ALLOWED_IMAGE_TYPES:
         return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers or [0])
 
@@ -119,40 +113,77 @@ def process_document(
         else:
             return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers or [0])
 
-    # AUTO_FORCE_RAPID_OCR aktifse PDF tarafında da direkt RapidOCR kullan.
-    if AUTO_FORCE_RAPID_OCR:
+    # AUTO_FORCE_RAPID_OCR aktifse PDF tarafında da direkt RapidOCR kullan (fatura modunda bypass).
+    if AUTO_FORCE_RAPID_OCR and not is_fatura:
         return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers)
 
-    # PDF auto: sayfa bazlı karar (pdf_convert ve engines ilk kullanımda yüklenir)
-    from app.utils.pdf_convert import pdf_page_count, pdf_page_to_image
+    # PDF auto: tek fitz açılışı ile sayfa analizi + dönüşüm
+    import fitz
     from app.engines.pdf_text import extract as pdf_text_extract
     from app.engines.pdf_table import extract as pdf_table_extract
     from app.engines.ocr_rapid import extract as ocr_rapid_extract
 
-    n_pages = pdf_page_count(path)
+    doc = fitz.open(path)
+    n_pages = len(doc)
     if n_pages == 0:
+        doc.close()
         return [], ""
+
     indices = page_numbers if page_numbers is not None else list(range(n_pages))
     indices = [i for i in indices if 0 <= i < n_pages]
+
+    # 1. Faz: tüm sayfaları tek seferde analiz et (fitz zaten açık)
+    page_engines: dict[int, str] = {}
+    text_pages: list[int] = []  # pdfplumber tablo kontrolü yapılacaklar
+
+    for i in indices:
+        engine = _analyze_pdf_page(doc[i])
+        if engine == "pdftext_or_table":
+            text_pages.append(i)
+            page_engines[i] = "pdftext"  # varsayılan, tablo varsa değişecek
+        else:
+            page_engines[i] = engine
+
+    # 2. Faz: tablo kontrolü (tek pdfplumber açılışı)
+    if text_pages:
+        table_pages = _check_tables_pdfplumber(path, text_pages)
+        for i in table_pages:
+            page_engines[i] = "pdftexttable"
+
+    # 3. Faz: OCR sayfaları için görüntü dönüşümü (fitz hâlâ açık)
+    ocr_images: dict[int, bytes] = {}
+    dpi = OCR_DPI_RAPID
+    mat = fitz.Matrix(dpi / 72, dpi / 72)
+    for i in indices:
+        if page_engines[i] in ("pdfimagev5", "pdfimagepaddleocrlow"):
+            try:
+                pix = doc[i].get_pixmap(matrix=mat, alpha=False)
+                ocr_images[i] = pix.tobytes("png")
+            except Exception:
+                pass
+
+    doc.close()
+
+    # 4. Faz: her sayfayı uygun engine ile işle
     all_pages: list[dict[str, Any]] = []
     methods_used: list[str] = []
     empty_page = {"page_number": 0, "content": "", "tables": [], "text_blocks": [], "page_width": None, "page_height": None}
 
     for i in indices:
-        engine = _decide_engine_for_pdf_page(path, i)
+        engine = page_engines[i]
         methods_used.append(engine)
-        ep = dict(empty_page)
-        ep["page_number"] = i + 1
 
         if engine == "pdftext":
             part = pdf_text_extract(path, page_numbers=[i])
         elif engine == "pdftexttable":
             part = pdf_table_extract(path, page_numbers=[i])
         else:
-            png_bytes = pdf_page_to_image(path, i, dpi=OCR_DPI_RAPID)
+            png_bytes = ocr_images.get(i)
             if png_bytes:
                 part = ocr_rapid_extract(path, page_numbers=[i], image_bytes=png_bytes)
             else:
+                ep = dict(empty_page)
+                ep["page_number"] = i + 1
                 part = [ep]
         all_pages.extend(part)
 
@@ -175,21 +206,31 @@ def _run_ocr_pdf_or_image(
     empty_page = {"page_number": 0, "content": "", "tables": [], "text_blocks": [], "page_width": None, "page_height": None}
 
     if is_pdf:
-        from app.utils.pdf_convert import pdf_page_count, pdf_page_to_image
-        n_pages = pdf_page_count(path)
+        # Tek fitz açılışı ile sayfa sayısı + görüntü dönüşümü
+        import fitz
+        doc = fitz.open(path)
+        n_pages = len(doc)
         indices = page_numbers if page_numbers is not None else list(range(n_pages))
         indices = [i for i in indices if 0 <= i < n_pages]
+
+        if engine == "pdfimagev5":
+            dpi = OCR_DPI_RAPID
+        elif engine == "pdfimagepaddleocrlow":
+            dpi = int(os.environ.get("OCR_DPI_PADDLEOCR_LOW", str(OCR_DPI_PADDLEOCR_LOW)))
+        elif engine in ("icr", "icrpaddle"):
+            dpi = ICR_DPI
+        else:
+            dpi = OCR_DPI_TESSERACT
+
+        mat = fitz.Matrix(dpi / 72, dpi / 72)
         all_pages = []
         for i in indices:
-            if engine == "pdfimagev5":
-                dpi = OCR_DPI_RAPID
-            elif engine == "pdfimagepaddleocrlow":
-                dpi = int(os.environ.get("OCR_DPI_PADDLEOCR_LOW", str(OCR_DPI_PADDLEOCR_LOW)))
-            elif engine in ("icr", "icrpaddle"):
-                dpi = ICR_DPI
-            else:
-                dpi = OCR_DPI_TESSERACT
-            png_bytes = pdf_page_to_image(path, i, dpi=dpi)
+            try:
+                pix = doc[i].get_pixmap(matrix=mat, alpha=False)
+                png_bytes = pix.tobytes("png")
+            except Exception:
+                png_bytes = None
+
             if png_bytes:
                 if engine == "pdfimagev5":
                     from app.engines.ocr_rapid import extract as ocr_rapid_extract
@@ -210,6 +251,8 @@ def _run_ocr_pdf_or_image(
                 part = [dict(empty_page)]
                 part[0]["page_number"] = i + 1
             all_pages.extend(part)
+
+        doc.close()
         return all_pages, engine
 
     # Tek sayfa resim

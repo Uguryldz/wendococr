@@ -31,6 +31,7 @@ from app.config import (
 )
 from app.config import UPLOAD_DIR
 from app.utils.turkish_postprocess import postprocess_turkish
+from app.utils.text_layout import content_from_text_blocks_with_bbox
 
 _OCR_CACHE: dict[int, Any] = {}
 
@@ -224,7 +225,6 @@ def extract(
                 }]
 
             text_blocks = _predict_to_text_blocks(first_result.json)
-            from app.utils.text_layout import content_from_text_blocks_with_bbox
             content = content_from_text_blocks_with_bbox(text_blocks)
 
             return [{

@@ -1,5 +1,6 @@
 """FastAPI endpoint'leri: OCR, ICR, Findeks Export, Sistem."""
 import asyncio
+import logging
 import time
 from pathlib import Path
 
@@ -16,8 +17,11 @@ from app.config import (
     UPLOAD_DIR,
 )
 from app.core.router import process_document
+from app.core.worker_pool import get_pool, QueueFullError, QueueTimeoutError
 from app.schemas import ExtractResponse, PageResult, page_result_from_engine
 from app.utils.page_range import parse_page_range
+
+logger = logging.getLogger("wendococr.routes")
 
 # ─── Swagger Dosya Açıklamaları ───
 _PDF_OR_IMAGE = "PDF veya resim (JPEG, PNG, BMP, WEBP, TIFF, GIF, PBM, PGM, PPM)."
@@ -71,19 +75,21 @@ async def _process_upload(
         raise HTTPException(500, detail=f"Dosya yazılamadı: {e}")
 
     page_numbers = parse_page_range(page_range, max_pages=MAX_PAGES)
+    pool = get_pool()
 
     start_time = time.perf_counter()
     try:
-        loop = asyncio.get_event_loop()
-        pages_raw, method_used = await loop.run_in_executor(
-            None,
-            lambda: process_document(
-                tmp_path,
-                mode=mode,
-                content_type=file.content_type or EXT_TO_MIME.get(suffix),
-                page_numbers=page_numbers,
-            ),
+        pages_raw, method_used = await pool.submit(
+            process_document,
+            tmp_path,
+            mode=mode,
+            content_type=file.content_type or EXT_TO_MIME.get(suffix),
+            page_numbers=page_numbers,
         )
+    except QueueFullError as e:
+        raise HTTPException(503, detail=str(e))
+    except QueueTimeoutError as e:
+        raise HTTPException(504, detail=str(e))
     except Exception as e:
         raise HTTPException(500, detail=f"İşleme hatası: {str(e)}")
     finally:
@@ -91,6 +97,7 @@ async def _process_upload(
             tmp_path.unlink(missing_ok=True)
         except Exception:
             pass
+
     processing_time_sec = round(time.perf_counter() - start_time, 3)
 
     if len(pages_raw) > MAX_PAGES:
@@ -157,6 +164,7 @@ def _check_upload_dir() -> bool:
 @router.get("/health", tags=["Sistem"], summary="Sağlık kontrolü")
 def health():
     """Servisin ayakta olduğunu ve tüm motor bağımlılıklarını doğrular."""
+    pool = get_pool()
     return {
         "status": "ok",
         "motorlar": {
@@ -167,6 +175,7 @@ def health():
         "sistem": {
             "upload_dir": _check_upload_dir(),
         },
+        "workers": pool.status(),
     }
 
 
@@ -363,7 +372,31 @@ async def v1_icrpaddle(
 
 
 # ═══════════════════════════════════════════════════════════
-# 6. FİNDEKS EXPORT
+# 6. FATURA
+# ═══════════════════════════════════════════════════════════
+
+@router.post("/v1/fatura", tags=["Fatura"], summary="Fatura metin çıkarımı (PDF veya resim)")
+async def v1_fatura(
+    file: UploadFile = File(..., description=_PDF_OR_IMAGE),
+    page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
+    format: str = Query("json", description="Çıktı: json veya text"),
+):
+    """
+    Fatura belgesinden akıllı metin çıkarımı.
+
+    Dosya tipine göre en uygun motoru otomatik seçer:
+
+    | Dosya Tipi | Motor |
+    |------------|-------|
+    | Resim (PNG, JPEG, …) | RapidOCR |
+    | PDF — dijital metin var | PyMuPDF / pdfplumber |
+    | PDF — taranmış | RapidOCR |
+    """
+    return await _process_upload(file, "fatura", page_range=page_range, format=format)
+
+
+# ═══════════════════════════════════════════════════════════
+# 7. FİNDEKS EXPORT
 # ═══════════════════════════════════════════════════════════
 
 @router.post("/v1/findeksexport", tags=["Findeks Export"], summary="Findeks rapor çıkarımı (JSON / XLSX)")

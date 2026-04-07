@@ -25,6 +25,7 @@ import pytesseract
 
 from app.config import ICR_DPI, ICR_PSM_CANDIDATES, ICR_USER_DEFINED_DPI
 from app.utils.turkish_postprocess import postprocess_turkish
+from app.utils.text_layout import content_from_text_blocks_with_bbox
 
 
 def _preprocess_handwriting_soft(img: np.ndarray) -> np.ndarray:
@@ -233,7 +234,7 @@ def extract(
         return []
 
     text_blocks = [{"text": t, "bbox": b} for b, t in lines_bbox]
-    content = " ".join(t for _, t in lines_bbox)
+    content = content_from_text_blocks_with_bbox(text_blocks)
     return [{
         "page_number": page_no,
         "content": content,
