@@ -13,3 +13,13 @@ __pycache__
 test
 agent-transcripts
 *.log
+
+# Gelistirme/analiz ciktilari — imaja girmemeli (boyut + gizlilik)
+export
+cikti
+cikti*
+*.bak
+requirements.txt.bak
+scratchpad
+*.md
+!README.md

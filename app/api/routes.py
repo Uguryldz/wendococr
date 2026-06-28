@@ -78,6 +78,7 @@ async def _process_upload(
     pool = get_pool()
 
     start_time = time.perf_counter()
+    visual_objects_by_page: dict[int, list[dict]] = {}
     try:
         pages_raw, method_used = await pool.submit(
             process_document,
@@ -92,6 +93,21 @@ async def _process_upload(
         raise HTTPException(504, detail=str(e))
     except Exception as e:
         raise HTTPException(500, detail=f"İşleme hatası: {str(e)}")
+    else:
+        # OCR basariliysa: gorsel obje tespiti (logo, qr, barkod, damga)
+        try:
+            from app.utils.visual_objects import detect_pdf_objects, detect_image_objects
+            if suffix == ".pdf":
+                objs = detect_pdf_objects(tmp_path, page_numbers=page_numbers)
+                for o in objs:
+                    visual_objects_by_page.setdefault(o["page_index"], []).append(o)
+            elif suffix in (".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"):
+                objs = detect_image_objects(tmp_path, page_index=0)
+                for o in objs:
+                    visual_objects_by_page.setdefault(0, []).append(o)
+        except Exception:
+            # Tespit basarisiz olsa bile OCR sonucu donmeli
+            pass
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
@@ -108,6 +124,8 @@ async def _process_upload(
             p["page_number"], p.get("content", ""), p.get("tables"),
             text_blocks=p.get("text_blocks"),
             page_width=p.get("page_width"), page_height=p.get("page_height"),
+            # page_number 1-indexli; visual_objects 0-indexli page_index ile saklanir
+            images=visual_objects_by_page.get((p["page_number"] - 1), []),
         )
         for p in pages_raw
     ]

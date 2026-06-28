@@ -11,6 +11,7 @@ from app.config import (
     ALLOWED_PDF_TYPE,
     AUTO_FORCE_RAPID_OCR,
     AUTO_FORCE_PADDLEOCR_LOW,
+    AUTO_SMART,
     EXTRACT_MODES,
     ICR_DPI,
     OCR_DPI_RAPID,
@@ -113,8 +114,11 @@ def process_document(
         else:
             return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers or [0])
 
-    # AUTO_FORCE_RAPID_OCR aktifse PDF tarafında da direkt RapidOCR kullan (fatura modunda bypass).
-    if AUTO_FORCE_RAPID_OCR and not is_fatura:
+    # AUTO_FORCE_RAPID_OCR aktifse PDF tarafında da direkt RapidOCR kullan.
+    # Fatura modunda ve AUTO_SMART açıkken bypass edilir: dijital PDF'in metin
+    # katmanı OCR'a zorlanmadan okunur (fatura gibi akıllı davranış).
+    smart = is_fatura or AUTO_SMART
+    if AUTO_FORCE_RAPID_OCR and not smart:
         return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers)
 
     # PDF auto: tek fitz açılışı ile sayfa analizi + dönüşüm

@@ -158,15 +158,23 @@ def content_from_text_blocks_with_bbox(
 
     rows: list[list[tuple[float, float, float, str]]] = []
     current_row: list[tuple[float, float, float, str]] = [items[0]]
-    current_y = items[0][0]
+    # Satir referansi: ilk bloga sabitlemek yerine satirin calisan ORTALAMA y'si.
+    # Boylece hafif egik/taranmis belgede satir basi ile sonu arasindaki y kaymasi
+    # birikip blogu yanlislikla alt satira dusurmez (kayma onleme).
+    row_y_sum = items[0][0]
+    row_y_cnt = 1
 
     for it in items[1:]:
-        if abs(it[0] - current_y) <= y_threshold:
+        avg_y = row_y_sum / row_y_cnt
+        if abs(it[0] - avg_y) <= y_threshold:
             current_row.append(it)
+            row_y_sum += it[0]
+            row_y_cnt += 1
         else:
             rows.append(current_row)
             current_row = [it]
-            current_y = it[0]
+            row_y_sum = it[0]
+            row_y_cnt = 1
     rows.append(current_row)
 
     # Ortalama karakter genişliği hesapla

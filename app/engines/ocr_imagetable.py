@@ -45,7 +45,7 @@ def _ocr_embedded_image_tesseract(img_np: np.ndarray) -> list[tuple[list, str]]:
     out = []
     try:
         data = pytesseract.image_to_data(
-            img, lang="tur", config=TESSERACT_CONFIG, output_type=pytesseract.Output.DICT
+            img, lang="tur+eng", config=TESSERACT_CONFIG, output_type=pytesseract.Output.DICT
         )
         n = len(data.get("text") or [])
         for i in range(n):

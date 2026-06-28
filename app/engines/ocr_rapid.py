@@ -14,6 +14,9 @@ from app.utils.text_layout import content_from_text_blocks_with_bbox
 
 from app.config import (
     RAPIDOCR_DET_LIMIT_SIDE_LEN,
+    RAPIDOCR_DET_UNCLIP_RATIO,
+    RAPIDOCR_DET_BOX_THRESH,
+    RAPIDOCR_DETECT_TABLES,
     RAPIDOCR_ENHANCE,
     RAPIDOCR_MIN_BOX_AREA,
     RAPIDOCR_MIN_CONFIDENCE,
@@ -41,6 +44,9 @@ def _get_rapid_engine():
             # text_score: 0.4 — Türkçe/Latin karakterlerde daha toleranslı tanıma
             _rapid_engine = RapidOCR(params={
                 "Det.limit_side_len": RAPIDOCR_DET_LIMIT_SIDE_LEN,
+                # unclip_ratio: kesik harf/kenar kurtarma, box_thresh: soluk metin yakalama
+                "Det.unclip_ratio": RAPIDOCR_DET_UNCLIP_RATIO,
+                "Det.box_thresh": RAPIDOCR_DET_BOX_THRESH,
             })
             _rapid_engine.text_score = RAPIDOCR_TEXT_SCORE
         except Exception:
@@ -160,6 +166,60 @@ def _run_rapidocr(
 
     return out, w, h
 
+def _detect_tables(img: np.ndarray, text_blocks: list[dict]) -> list[dict[str, Any]]:
+    """
+    OpenCV cizgi tabanli hafif tablo tespiti (resim OCR icin).
+    Yatay+dikey cizgilerin kesistigi bolgeleri tablo kutusu kabul eder,
+    kutu icine dusen text_block'lari satir (y) bazinda gruplayarak rows uretir.
+    Cizgi yoksa bos liste doner (cizgisiz tablo tespit etmez — yanlis pozitif onleme).
+    """
+    if img is None or img.size == 0 or not text_blocks:
+        return []
+    try:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+        bw = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                   cv2.THRESH_BINARY_INV, 15, -2)
+        h, w = gray.shape[:2]
+        # Yatay ve dikey cizgi maskeleri (sayfa boyutuna olcekli kernel)
+        hk = cv2.getStructuringElement(cv2.MORPH_RECT, (max(20, w // 30), 1))
+        vk = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(20, h // 30)))
+        horiz = cv2.erode(bw, hk); horiz = cv2.dilate(horiz, hk)
+        vert = cv2.erode(bw, vk); vert = cv2.dilate(vert, vk)
+        grid = cv2.add(horiz, vert)
+        cnts, _ = cv2.findContours(grid, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        tables = []
+        for c in cnts:
+            x, y, cw, ch = cv2.boundingRect(c)
+            # Cok kucuk veya cizgi-ince bolgeleri ele (gercek tablo degil)
+            if cw < w * 0.15 or ch < h * 0.04 or cw * ch < (w * h) * 0.01:
+                continue
+            inside = [b for b in text_blocks
+                      if b["bbox"][0] >= x - 5 and b["bbox"][1] >= y - 5
+                      and b["bbox"][2] <= x + cw + 5 and b["bbox"][3] <= y + ch + 5]
+            if len(inside) < 2:
+                continue
+            # Satir bazinda grupla (y ortasi)
+            inside.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
+            rows, cur, cy = [], [], None
+            for b in inside:
+                ym = (b["bbox"][1] + b["bbox"][3]) / 2
+                if cy is None or abs(ym - cy) <= (b["bbox"][3] - b["bbox"][1]) * 0.7:
+                    cur.append(b); cy = ym if cy is None else (cy + ym) / 2
+                else:
+                    rows.append(cur); cur = [b]; cy = ym
+            if cur:
+                rows.append(cur)
+            row_texts = [[bb["text"] for bb in sorted(r, key=lambda b: b["bbox"][0])] for r in rows]
+            tables.append({
+                "rows": row_texts,
+                "bbox": [float(x), float(y), float(x + cw), float(y + ch)],
+                "cells_bbox": [[bb["bbox"] for bb in sorted(r, key=lambda b: b["bbox"][0])] for r in rows],
+            })
+        return tables
+    except Exception:
+        return []
+
+
 def extract(
     file_path: Path | str | None,
     page_numbers: list[int] | None = None,
@@ -171,23 +231,30 @@ def extract(
     """
     page_no = (page_numbers[0] + 1) if page_numbers else 1
 
+    img_for_tables = None
     if image_bytes:
         lines_bbox, page_width, page_height = _run_rapidocr(image_bytes=image_bytes)
+        if RAPIDOCR_DETECT_TABLES:
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            img_for_tables = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     elif file_path:
         file_path = Path(file_path)
         if not file_path.exists(): return []
         img = load_image(str(file_path))
         lines_bbox, page_width, page_height = _run_rapidocr(image_array=img)
+        if RAPIDOCR_DETECT_TABLES:
+            img_for_tables = img
     else:
         return []
 
     text_blocks = [{"text": t, "bbox": b} for b, t in lines_bbox]
     content = content_from_text_blocks_with_bbox(text_blocks)
+    tables = _detect_tables(img_for_tables, text_blocks) if RAPIDOCR_DETECT_TABLES else []
 
     return [{
         "page_number": page_no,
         "content": content,
-        "tables": [],
+        "tables": tables,
         "text_blocks": text_blocks,
         "page_width": float(page_width),
         "page_height": float(page_height),

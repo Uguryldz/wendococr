@@ -53,10 +53,40 @@ _CHAR_FIXES = {
 _EXTRA_COMBINING_RE = re.compile(r"([\u0300-\u036f]{2,})")
 
 
+# Cok dilli OCR modeli (RapidOCR PP-OCRv6) Latin-disi karakter sizdirir.
+# Turkce'de olmayan benzer gorunumlu harfleri dogru Turkce karsiligina cevir.
+_LATIN_LEAK_FIXES = {
+    "\u0219": "\u015f", "\u0218": "\u015e",  # s,S Romence virgullu -> s,S
+    "\u010d": "\u011f", "\u010c": "\u011e",  # c,C Slav hacek -> g,G
+    "\u0161": "\u015f", "\u0160": "\u015e",  # s,S Slav hacek s -> s,S
+    "\u00cd": "\u0130", "\u00ed": "i",        # I,i akut -> I,i
+    "\u00e4": "a", "\u00c4": "A",
+    "\u00f3": "o", "\u00d3": "O",
+    "\u00e9": "e", "\u00c9": "E",
+    "\u016b": "u", "\u016a": "U",
+    "\u00fa": "u", "\u00da": "U",
+    "\u017c": "z", "\u017b": "Z",
+}
+
+# Latin-disi / Turkce'de hic bulunmayan sizinti karakterleri (tamamen sil).
+# CJK, tam-genislik, kutu, ust-simge. ASCII ve mesru isaretlere dokunmaz.
+_LEAKAGE_RE = re.compile(
+    "[\u4e00-\u9fff"   # CJK ideograflar
+    "\u3000-\u303f"    # CJK noktalama
+    "\uff00-\uffef"    # tam-genislik (fullwidth)
+    "\u25a0-\u25ff"    # geometrik sekiller (kutu)
+    "\u00b9\u00b2\u00b3]"  # ust-simge 1,2,3
+)
+
+
 def fix_ocr_chars(text: str) -> str:
     """Yaygın OCR karakter hatalarını düzeltir."""
     for old, new in _CHAR_FIXES.items():
         text = text.replace(old, new)
+    # Cok dilli model sizintilarini Turkce karsiligina cevir, sonra sil
+    for old, new in _LATIN_LEAK_FIXES.items():
+        text = text.replace(old, new)
+    text = _LEAKAGE_RE.sub("", text)
     # Birden fazla combining mark varsa sadece ilkini tut
     text = _EXTRA_COMBINING_RE.sub(lambda m: m.group(0)[0], text)
     return text

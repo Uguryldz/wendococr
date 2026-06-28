@@ -1,0 +1,142 @@
+volumes:
+  ocr_uploads:
+  redis_data:
+
+services:
+  redis:
+    image: nexusregistry.hayatfinans.com.tr/library/redis:7-alpine
+    container_name: wendococr-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "512mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - wendococr_net
+
+  wendococr:
+    image: nexusregistry.hayatfinans.com.tr/rpa/uguryldz/wendococr:v1.0.0
+    container_name: wendococr
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8099:8099"
+    entrypoint: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8099", "--workers", "1"]
+    environment:
+      UPLOAD_DIR: /tmp/wendococr
+      REDIS_URL: redis://redis:6379/1
+      OCR_QUEUE_MAX_SIZE: "100"
+      OCR_QUEUE_TIMEOUT: "300"
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      FLAGS_use_mkldnn: "0"
+      OCR_DPI_PADDLEOCR_LOW: "150"
+      PADDLEOCR_LOW_MAX_SIDE: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
+    volumes:
+      - ocr_uploads:/tmp/wendococr
+    networks:
+      - wendococr_net
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+
+  wendococr-worker-1:
+    image: nexusregistry.hayatfinans.com.tr/rpa/uguryldz/wendococr:v1.0.0
+    container_name: wendococr-worker-1
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    entrypoint: ["python", "-m", "app.core.worker_pool"]
+    environment:
+      UPLOAD_DIR: /tmp/wendococr
+      REDIS_URL: redis://redis:6379/1
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      FLAGS_use_mkldnn: "0"
+      OCR_DPI_PADDLEOCR_LOW: "150"
+      PADDLEOCR_LOW_MAX_SIDE: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
+    volumes:
+      - ocr_uploads:/tmp/wendococr
+    networks:
+      - wendococr_net
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+
+  wendococr-worker-2:
+    image: nexusregistry.hayatfinans.com.tr/rpa/uguryldz/wendococr:v1.0.0
+    container_name: wendococr-worker-2
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    entrypoint: ["python", "-m", "app.core.worker_pool"]
+    environment:
+      UPLOAD_DIR: /tmp/wendococr
+      REDIS_URL: redis://redis:6379/1
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      FLAGS_use_mkldnn: "0"
+      OCR_DPI_PADDLEOCR_LOW: "150"
+      PADDLEOCR_LOW_MAX_SIDE: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
+    volumes:
+      - ocr_uploads:/tmp/wendococr
+    networks:
+      - wendococr_net
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+
+  wendococr-worker-3:
+    image: nexusregistry.hayatfinans.com.tr/rpa/uguryldz/wendococr:v1.0.0
+    container_name: wendococr-worker-3
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    entrypoint: ["python", "-m", "app.core.worker_pool"]
+    environment:
+      UPLOAD_DIR: /tmp/wendococr
+      REDIS_URL: redis://redis:6379/1
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      FLAGS_use_mkldnn: "0"
+      OCR_DPI_PADDLEOCR_LOW: "150"
+      PADDLEOCR_LOW_MAX_SIDE: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
+      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
+    volumes:
+      - ocr_uploads:/tmp/wendococr
+    networks:
+      - wendococr_net
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+
+networks:
+  wendococr_net:
+    driver: bridge

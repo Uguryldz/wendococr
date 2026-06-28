@@ -30,8 +30,17 @@ class PageTable(BaseModel):
     )
 
 
+class VisualObject(BaseModel):
+    """Sayfa içindeki görsel obje (logo, qr, barkod, damga)."""
+    id: str
+    type: str = Field(description="qr | barcode | logo | stamp | junk")
+    bbox: BBox
+    preview: str = ""
+    reason: str = ""
+
+
 class PageResult(BaseModel):
-    """Tek sayfa çıktısı: metin, koordinatlı metin blokları, koordinatlı tablolar."""
+    """Tek sayfa çıktısı: metin, koordinatlı metin blokları, koordinatlı tablolar, görsel objeler."""
     page_number: int
     content: str = Field(default="", description="Tüm metnin birleşik hali (kolay okuma)")
     text_blocks: list[TextBlock] = Field(
@@ -39,6 +48,10 @@ class PageResult(BaseModel):
         description="Metin parçaları ve koordinatları — ne nerede",
     )
     tables: list[PageTable] = Field(default_factory=list, description="Sayfadaki tablolar (koordinatlı)")
+    images: list[VisualObject] = Field(
+        default_factory=list,
+        description="Sayfadaki görsel objeler (logo, qr, barkod, damga) — koordinatlı",
+    )
     page_width: float | None = Field(default=None, description="Sayfa genişliği (koordinat birimi)")
     page_height: float | None = Field(default=None, description="Sayfa yüksekliği (koordinat birimi)")
 
@@ -74,6 +87,7 @@ def page_result_from_engine(
     text_blocks: list[Any] | None = None,
     page_width: float | None = None,
     page_height: float | None = None,
+    images: list[Any] | None = None,
 ) -> PageResult:
     """Engine'den gelen ham çıktıyı PageResult'a çevirir (koordinatlar dahil)."""
     if tables is None:
@@ -120,11 +134,27 @@ def page_result_from_engine(
         else:
             normalized_tables.append(PageTable(rows=[], bbox=None, cells_bbox=None))
 
+    normalized_images: list[VisualObject] = []
+    for img in (images or []):
+        if not isinstance(img, dict):
+            continue
+        box = _to_bbox(img.get("bbox"))
+        if box is None:
+            continue
+        normalized_images.append(VisualObject(
+            id=str(img.get("id", "")),
+            type=str(img.get("type", "logo")),
+            bbox=box,
+            preview=str(img.get("preview", "")),
+            reason=str(img.get("reason", "")),
+        ))
+
     return PageResult(
         page_number=page_number,
         content=content or "",
         text_blocks=normalized_blocks,
         tables=normalized_tables,
+        images=normalized_images,
         page_width=page_width,
         page_height=page_height,
     )

@@ -1,40 +1,70 @@
+volumes:
+  ocr_uploads:
+  redis_data:
+
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: wendococr-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "512mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - wendococr_net
+
   wendococr:
     build:
       context: .
       dockerfile: Dockerfile
-    image: nexusregistry.hayatfinans.com.tr/rpa/uguryldz/wendococr:v1.0.2
+    image: uguryldz/wendococr:v1.0.0
     container_name: wendococr
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "8099:8099"
     environment:
       UPLOAD_DIR: /tmp/wendococr
       REDIS_URL: redis://redis:6379/1
       OCR_QUEUE_MAX_SIZE: "100"
-      OCR_QUEUE_TIMEOUT: "120"
+      OCR_QUEUE_TIMEOUT: "300"
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       FLAGS_use_mkldnn: "0"
       OCR_DPI_PADDLEOCR_LOW: "150"
       PADDLEOCR_LOW_MAX_SIDE: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
-    # KVKK: gelen belgeler RAM'de (tmpfs) islenir, diske YAZILMAZ.
-    # Container olunce gecici dosyalar otomatik buharlasir — kalici iz birakmaz.
-    tmpfs:
-      - /tmp/wendococr:size=512m,mode=1700
+    volumes:
+      - ocr_uploads:/tmp/wendococr
     networks:
-      - uinfra
+      - wendococr_net
     deploy:
       resources:
         limits:
-          cpus: '4.0'
-          memory: 8G
+          cpus: '2.0'
+          memory: 2G
 
   wendococr-worker:
-    image: nexusregistry.hayatfinans.com.tr/rpa/uguryldz/wendococr:v1.0.2
+    image: uguryldz/wendococr:v1.0.0
     restart: unless-stopped
-    command: ["bash", "entrypoint.sh", "worker"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["bash", "/app/entrypoint.sh", "worker"]
     environment:
       UPLOAD_DIR: /tmp/wendococr
       REDIS_URL: redis://redis:6379/1
@@ -45,14 +75,10 @@ services:
       PADDLEOCR_LOW_MAX_SIDE: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
-    # KVKK: worker da gelen belgeyi RAM'de (tmpfs) isler, diske yazmaz.
-    tmpfs:
-      - /tmp/wendococr:size=512m,mode=1700
-    healthcheck:
-      test: ["CMD", "true"]
-      interval: 30s
+    volumes:
+      - ocr_uploads:/tmp/wendococr
     networks:
-      - uinfra
+      - wendococr_net
     deploy:
       replicas: 3
       resources:
@@ -61,5 +87,5 @@ services:
           memory: 4G
 
 networks:
-  uinfra:
-    external: true
+  wendococr_net:
+    driver: bridge

@@ -42,3 +42,10 @@ test/__pycache__/
 test/finocr/
 test/*_extract.json
 test/*_extract.xlsx
+
+# OCR analiz/karşılaştırma çıktıları (geçici, repo'ya girmemeli)
+export/
+cikti/
+cikti*/
+*.bak
+scratchpad/

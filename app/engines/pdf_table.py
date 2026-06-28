@@ -4,6 +4,8 @@ from typing import Any
 
 import pdfplumber
 
+from app.utils.text_layout import content_from_text_blocks_with_bbox
+
 
 def _table_to_rows(table: list) -> list[list[str]]:
     """pdfplumber tablo çıktısını rows yapısına çevirir."""
@@ -94,9 +96,16 @@ def extract(
                         "cells_bbox": cells_bbox,
                     })
 
+                # Layout-aware content: koordinatlı text_blocks varsa onlardan üret
+                # (diğer motorlarla tutarlı), yoksa ham extract_text()'e düş.
+                if text_blocks:
+                    content = content_from_text_blocks_with_bbox(text_blocks)
+                else:
+                    content = text.strip()
+
                 results.append({
                     "page_number": i + 1,
-                    "content": text.strip(),
+                    "content": content,
                     "tables": tables_data,
                     "text_blocks": text_blocks,
                     "page_width": page_width,

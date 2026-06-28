@@ -30,17 +30,31 @@ MAX_PAGES = 500
 OCR_DPI_RAPID = 200
 OCR_DPI_TESSERACT = 250
 AUTO_FORCE_RAPID_OCR = True
+# Auto modu fatura gibi "akıllı" davransın mı: True ise dijital PDF'lerde
+# OCR'a zorlamadan metin katmanını okur (AUTO_FORCE_RAPID_OCR bypass edilir).
+# Fatura'dan bağımsız ayar — auto'nun davranışı buradan değiştirilir.
+AUTO_SMART = True
 
 # RapidOCR ayarları (daha katı çıkarım için)
-RAPIDOCR_DET_LIMIT_SIDE_LEN = 960
+RAPIDOCR_DET_LIMIT_SIDE_LEN = 1280  # 960->1280: kucuk punto (seri no, MRZ, ince satir) daha net
 RAPIDOCR_TEXT_SCORE = 0.40
 RAPIDOCR_MIN_TOKEN_LEN = 1
 RAPIDOCR_MIN_CONFIDENCE = 0.35
 RAPIDOCR_MIN_BOX_AREA = 8.0
 
+# RapidOCR detection ince ayar (doruluk; CPU-uyumlu, model degismez)
+# unclip_ratio: tespit kutusunu disa genisletir -> kesik harf/kenar kurtarir (1.6 default)
+RAPIDOCR_DET_UNCLIP_RATIO = 1.8
+# box_thresh: kutu guven esigi -> dusurmek soluk/ince metni yakalar (0.5 default)
+RAPIDOCR_DET_BOX_THRESH = 0.4
+
 # RapidOCR ön işleme seçenekleri
 RAPIDOCR_THRESHOLD = False
 RAPIDOCR_ENHANCE = True
+
+# Resim OCR'da tablo yapisi tespiti (OpenCV cizgi tabanli).
+# Default kapali — aciksa resimde yatay/dikey cizgiler bulunup tables alani doldurulur.
+RAPIDOCR_DETECT_TABLES = False
 
 # Tesseract (Türkçe) ayarları
 TESSERACT_PSM = "3"  # 3: auto, 6: block text
