@@ -49,3 +49,4 @@ cikti/
 cikti*/
 *.bak
 scratchpad/
+ocr.docker.compose.yml

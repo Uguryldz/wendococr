@@ -2,13 +2,12 @@
 set -e
 
 # KAYNAK KODU GIZLILIGI: Imaj icinde .py kaynak duz metin durur (Python imajlari kodu
-# gizleyemez). Tek gercek koruma imaji PRIVATE registry'de tutmaktir — public Docker
-# Hub'a ASLA push etme. Asagidaki hedef hayatfinans Nexus (private).
-REGISTRY="nexusregistry.hayatfinans.com.tr/rpa"
-IMAGE="${REGISTRY}/uguryldz/wendococr"
+# gizleyemez). Docker Hub deposu PRIVATE olmali — public ise tum kaynak kod aciga cikar.
+# Push oncesi: hub.docker.com -> uguryldz/wendococr -> Settings -> "Make private".
+IMAGE="uguryldz/wendococr"
 VERSION="v1.0.2"
 
-echo "=== wendococr build: ${IMAGE}:${VERSION} (PRIVATE registry) ==="
+echo "=== wendococr build: ${IMAGE}:${VERSION} ==="
 echo ""
 
 docker compose build
@@ -31,7 +30,7 @@ echo "  docker compose up -d --scale wendococr-worker=10  # 10 worker'a cikar"
 echo "  docker compose logs -f wendococr-worker           # Worker loglari"
 echo "  curl http://localhost:8099/health                  # Durum"
 echo ""
-echo "PRIVATE registry'ye push (public'e ASLA basma):"
-echo "  docker login ${REGISTRY%%/*}"
+echo "Docker Hub'a push (depo PRIVATE olmali — public ise kaynak kod acilir):"
+echo "  docker login"
 echo "  docker push ${IMAGE}:${VERSION}"
 echo "  docker push ${IMAGE}:latest"
