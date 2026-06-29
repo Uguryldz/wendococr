@@ -1,5 +1,12 @@
 volumes:
+  # KVKK: RAM-backed paylasimli volume — API+worker ayni dosyayi gorur (Redis modu),
+  # veri diske degil RAM'e yazilir, stack inince buharlasir.
   ocr_uploads:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=512m,mode=1700"
   redis_data:
 
 services:
@@ -29,7 +36,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: uguryldz/wendococr:v1.0.0
+    image: uguryldz/wendococr:v1.0.2
     container_name: wendococr
     restart: unless-stopped
     depends_on:
@@ -59,7 +66,7 @@ services:
           memory: 2G
 
   wendococr-worker:
-    image: uguryldz/wendococr:v1.0.0
+    image: uguryldz/wendococr:v1.0.2
     restart: unless-stopped
     depends_on:
       redis:

@@ -19,10 +19,11 @@ services:
       PADDLEOCR_LOW_MAX_SIDE: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
-    # KVKK: gelen belgeler RAM'de (tmpfs) islenir, diske YAZILMAZ.
-    # Container olunce gecici dosyalar otomatik buharlasir — kalici iz birakmaz.
-    tmpfs:
-      - /tmp/wendococr:size=512m,mode=1700
+    # KVKK: gelen belgeler RAM-backed PAYLASIMLI volume'de islenir (diske yazilmaz).
+    # tmpfs degil cunku Redis modunda API ve worker AYRI container — dosyayi
+    # paylasmalari gerek. tmpfs container-ozel olur, worker dosyayi goremez.
+    volumes:
+      - ocr_uploads:/tmp/wendococr
     networks:
       - uinfra
     deploy:
@@ -45,9 +46,9 @@ services:
       PADDLEOCR_LOW_MAX_SIDE: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
       PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
-    # KVKK: worker da gelen belgeyi RAM'de (tmpfs) isler, diske yazmaz.
-    tmpfs:
-      - /tmp/wendococr:size=512m,mode=1700
+    # KVKK: worker ayni RAM-backed paylasimli volume'u kullanir.
+    volumes:
+      - ocr_uploads:/tmp/wendococr
     healthcheck:
       test: ["CMD", "true"]
       interval: 30s
@@ -63,3 +64,13 @@ services:
 networks:
   uinfra:
     external: true
+
+volumes:
+  # RAM-backed paylasimli volume: API ve worker ayni dosyayi gorur (Redis modu),
+  # ama veri diske degil RAM'e yazilir (KVKK). Container/stack inince buharlasir.
+  ocr_uploads:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=512m,mode=1700"
