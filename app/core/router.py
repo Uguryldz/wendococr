@@ -22,11 +22,34 @@ from app.config import (
 # Minimum metin uzunluğu: sayfa "searchable" kabul edilir
 MIN_TEXT_LENGTH_SEARCHABLE = 20
 MIN_TABLE_ROWS_FOR_TABLE_ENGINE = 2
+# Tarayici filigrani esigi: bu uzunlugun altindaki metin "gercek icerik" sayilmaz.
+# Ornek: "CamScanner ile tarandi" (22 char) — tek satir filigran, gercek metin degil.
+SCAN_WATERMARK_MAX_LEN = 60
+# Gomulu resim sayfanin bu oranindan buyukse "taranmis sayfa" kabul edilir.
+SCANNED_IMAGE_AREA_RATIO = 0.5
 
 
 def _analyze_pdf_page(fitz_page) -> str:
     """Tek bir PDF sayfası için engine seçer (zaten açık doc üzerinde)."""
     text = fitz_page.get_text().strip()
+
+    # Taranmis belge tespiti: az metin AMA sayfayi kaplayan buyuk gomulu resim.
+    # CamScanner/tarayici ciktilari tek satir filigran + tam-sayfa resim icerir;
+    # bu filigran MIN_TEXT_LENGTH'i gecip sayfayi yanlislikla "searchable" yapar.
+    if len(text) < SCAN_WATERMARK_MAX_LEN:
+        try:
+            page_area = abs(fitz_page.rect.width * fitz_page.rect.height)
+            if page_area > 0:
+                for img in fitz_page.get_images(full=True):
+                    for r in fitz_page.get_image_rects(img[0]):
+                        if abs(r.width * r.height) >= page_area * SCANNED_IMAGE_AREA_RATIO:
+                            # Buyuk resim var → taranmis sayfa → OCR
+                            if AUTO_FORCE_PADDLEOCR_LOW:
+                                return "pdfimagepaddleocrlow"
+                            return "pdfimagev5"
+        except Exception:
+            pass
+
     if len(text) >= MIN_TEXT_LENGTH_SEARCHABLE:
         # Metin var — tablo kontrolü yap (pdfplumber lazy)
         return "pdftext_or_table"  # tablo kontrolü ayrıca yapılacak

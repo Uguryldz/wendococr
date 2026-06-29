@@ -82,11 +82,24 @@ app.add_middleware(
 )
 app.include_router(api_router)
 
+_cleanup_task = None
+
+
+@app.on_event("startup")
+async def start_cleanup():
+    # Yetim geçici dosya temizleyiciyi başlat (KVKK + tmpfs birikme önleme).
+    import asyncio
+    from app.utils.cleanup import cleanup_loop
+    global _cleanup_task
+    _cleanup_task = asyncio.create_task(cleanup_loop())
+
 
 @app.on_event("shutdown")
 async def shutdown_pool():
     from app.core.worker_pool import get_pool
     get_pool().shutdown()
+    if _cleanup_task is not None:
+        _cleanup_task.cancel()
 
 
 @app.exception_handler(Exception)

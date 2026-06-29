@@ -19,6 +19,12 @@ try:
 except OSError:
     pass
 
+# Yetim dosya temizligi (KVKK + RAM/tmpfs birikme onleme).
+# Normalde her istek dosyayi finally'de siler; ama OOM-kill/cokme gibi kenar
+# durumlarda dosya kalabilir. Periyodik temizleyici bunlari siler.
+UPLOAD_CLEANUP_INTERVAL_SEC = int(os.environ.get("UPLOAD_CLEANUP_INTERVAL_SEC", "300"))  # 5 dk
+UPLOAD_FILE_MAX_AGE_SEC = int(os.environ.get("UPLOAD_FILE_MAX_AGE_SEC", "600"))          # 10 dk'dan eski = yetim
+
 # Limitler
 MAX_FILE_SIZE_MB = 50
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
