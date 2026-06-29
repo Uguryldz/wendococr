@@ -5,7 +5,7 @@ set -e
 # gizleyemez). Docker Hub deposu PRIVATE olmali — public ise tum kaynak kod aciga cikar.
 # Push oncesi: hub.docker.com -> uguryldz/wendococr -> Settings -> "Make private".
 IMAGE="uguryldz/wendococr"
-VERSION="v1.0.4"
+VERSION="v1.0.3"
 
 echo "=== wendococr build: ${IMAGE}:${VERSION} ==="
 echo ""

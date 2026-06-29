@@ -41,13 +41,6 @@ COPY entrypoint.sh .
 # Uygulama dosyalari + home appuser'a ait olsun (model preload appuser olarak calissin).
 RUN chown -R appuser:appuser /app /home/appuser
 
-# Guvenlik: perl'i imajdan kaldir. Scout'taki tek Critical (CVE-2026-12087) +
-# birkac High/Medium perl 5.40.1-6'dan geliyor ve Debian'da yamasi YOK (Fixable:0).
-# Python OCR stack'i (Tesseract/RapidOCR/PaddleOCR) perl kullanmaz — test edildi.
-# Bu artik son apt islemi; sonrasinda paket kurulmuyor.
-RUN dpkg --purge --force-depends perl perl-base perl-modules-5.40 2>/dev/null || true \
-    && rm -rf /usr/share/perl* /usr/bin/perl* /var/lib/apt/lists/*
-
 # Bundan sonraki adimlar ve runtime non-root.
 USER appuser
 
