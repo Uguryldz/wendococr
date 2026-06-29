@@ -4,7 +4,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.openapi.docs import get_swagger_ui_html
 
 from app.api import router as api_router
 from app.config import CORS_ORIGINS, DEBUG, LOG_LEVEL, OCR_MAX_WORKERS
@@ -63,6 +64,7 @@ app = FastAPI(
         "| **Taranmış Belge OCR** | RapidOCR, Tesseract, PaddleOCR | 3 |\n"
         "| **Hibrit OCR** | Metin + gömülü resim | 2 |\n"
         "| **El Yazısı (ICR)** | Tesseract ICR, PaddleOCR ICR | 2 |\n"
+        "| **Fatura** | Akıllı motor seçimi (PDF/resim) | 1 |\n"
         "| **Findeks Export** | Yapısal veri çıkarımı (JSON/XLSX) | 1 |\n\n"
         "### Desteklenen Formatlar\n"
         "**PDF** | **Resim:** JPEG, PNG, BMP, WEBP, TIFF, GIF, PBM, PGM, PPM\n\n"
@@ -72,6 +74,7 @@ app = FastAPI(
     ),
     version="0.2.0",
     openapi_tags=OPENAPI_TAGS,
+    docs_url=None,  # ozel Swagger (sag-alt sabit imza icin) — asagida tanimli
 )
 app.add_middleware(
     CORSMiddleware,
@@ -81,6 +84,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router)
+
+
+# Ozel Swagger UI: standart docs + sag-alt kosede sabit (fixed) imza.
+_SIGNATURE_HTML = """
+<style>
+#wendococr-sign{position:fixed;right:14px;bottom:10px;z-index:9999;
+font:italic 12px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;
+color:#8a8a8a;opacity:.75;transition:opacity .2s;}
+#wendococr-sign:hover{opacity:1;}
+#wendococr-sign a{color:#5b6b7b;text-decoration:none;}
+#wendococr-sign a:hover{text-decoration:underline;}
+</style>
+<div id="wendococr-sign">&copy; <a href="https://www.linkedin.com/in/uguryldz/" target="_blank" rel="noopener">uğur yıldız</a></div>
+"""
+
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui():
+    html = get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=app.title + " — API",
+    )
+    body = html.body.decode("utf-8").replace("</body>", _SIGNATURE_HTML + "</body>")
+    return HTMLResponse(body)
 
 _cleanup_task = None
 
