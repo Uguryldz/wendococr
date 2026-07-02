@@ -12,8 +12,9 @@ REDIS_URL = os.environ.get("REDIS_URL", "")  # boş = local mod (Redis yok)
 REDIS_QUEUE_NAME = os.environ.get("REDIS_QUEUE_NAME", "wendococr:jobs")
 REDIS_RESULT_TTL = int(os.environ.get("REDIS_RESULT_TTL", "300"))  # sonuç saklama süresi (sn)
 
-# Geçici dosyalar
-UPLOAD_DIR = Path("/tmp/wendococr")
+# Geçici dosyalar. Bandit B108: bilincli — bu dizin compose'da tmpfs (RAM) +
+# mode=0700/uid=10001 ile mount edilir, dosyalar finally + cleanup ile silinir.
+UPLOAD_DIR = Path("/tmp/wendococr")  # nosec B108
 try:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 except OSError:
@@ -73,8 +74,10 @@ TESSERACT_USER_DEFINED_DPI = "300"
 LOG_LEVEL = "INFO"
 DEBUG = False
 
-# CORS
-CORS_ORIGINS = ["*"]
+# CORS (K3): origin whitelist .env'den (virgulle ayrik). Varsayilan "*" ama
+# "*" ile credentials BIRLIKTE kullanilamaz (spec-disi) — main.py bunu otomatik
+# ele alir. Production'da CORS_ORIGINS'i gercek domain(ler)e kisitlayin.
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
 
 # İzin verilen MIME / uzantılar
 ALLOWED_IMAGE_TYPES = {

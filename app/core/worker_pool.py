@@ -17,10 +17,9 @@ Worker:
     python -m app.core.worker_pool
 """
 import asyncio
-import importlib
+import json
 import logging
 import os
-import pickle
 import signal
 import time
 import uuid
@@ -40,6 +39,38 @@ logger = logging.getLogger("wendococr.pool")
 
 WORKER_HEARTBEAT_KEY = "wendococr:workers"
 WORKER_HEARTBEAT_TTL = 30  # saniye — 30s heartbeat gelmezse ölü sayılır
+
+# GUVENLIK (K1): Worker, kuyruktan gelen iste GÖRE rastgele fonksiyon CAGIRMAZ.
+# Sadece bu allowlist'teki güvenli fonksiyonlar çalıştırılabilir. Job, fonksiyonu
+# "module.qualname" yerine bu sözlükteki KISA ANAHTAR ile referans verir.
+# Boylece Redis'e zararli payload yazan biri (auth + JSON sayesinde zaten zor)
+# os.system gibi keyfi cagri yaptiramaz. Kuyruk JSON tasir (pickle RCE kapatildi).
+_ALLOWED_FUNCTIONS: dict[str, str] = {
+    "process_document": "app.core.router:process_document",
+}
+_FN_CACHE: dict[str, Callable] = {}
+
+
+def _resolve_allowed(fn_key: str) -> Callable:
+    """Allowlist anahtarini gercek fonksiyona cevirir; bilinmeyen anahtar reddedilir."""
+    if fn_key not in _ALLOWED_FUNCTIONS:
+        raise ValueError(f"İzin verilmeyen fonksiyon: {fn_key!r}")
+    if fn_key in _FN_CACHE:
+        return _FN_CACHE[fn_key]
+    import importlib
+    module_path, _, name = _ALLOWED_FUNCTIONS[fn_key].partition(":")
+    fn = getattr(importlib.import_module(module_path), name)
+    _FN_CACHE[fn_key] = fn
+    return fn
+
+
+def _fn_key_for(fn: Callable) -> str:
+    """Bir fonksiyonun allowlist anahtarini bulur; allowlist disiysa hata verir."""
+    target = f"{fn.__module__}:{fn.__qualname__}"
+    for key, path in _ALLOWED_FUNCTIONS.items():
+        if path == target:
+            return key
+    raise ValueError(f"Allowlist disi fonksiyon submit edilemez: {target}")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -144,14 +175,15 @@ class RedisWorkerPool:
 
         job_id = str(uuid.uuid4())
         result_key = f"wendococr:result:{job_id}"
-        job_data = pickle.dumps({
+        # GUVENLIK (K1): fonksiyon allowlist anahtariyla referans verilir, JSON tasinir.
+        # args icindeki Path -> str (JSON-uyumlu); process_document Path|str kabul eder.
+        job_data = json.dumps({
             "job_id": job_id,
-            "fn_module": fn.__module__,
-            "fn_name": fn.__qualname__,
-            "args": args,
+            "fn_key": _fn_key_for(fn),
+            "args": [str(a) if isinstance(a, os.PathLike) else a for a in args],
             "kwargs": kwargs,
             "submitted_at": time.time(),
-        })
+        }).encode("utf-8")
 
         self._redis.lpush(REDIS_QUEUE_NAME, job_data)
 
@@ -180,7 +212,7 @@ class RedisWorkerPool:
             raw = r.blpop(result_key, timeout=2)
             if raw:
                 r.close()
-                return pickle.loads(raw[1])
+                return json.loads(raw[1])
 
     def status(self) -> dict:
         try:
@@ -275,22 +307,20 @@ def run_worker():
             if raw is None:
                 continue
 
-            job = pickle.loads(raw)
+            # GUVENLIK (K1): JSON parse + allowlist. Kuyruktaki veri keyfi kod/fonksiyon
+            # tasiyamaz; bilinmeyen fn_key veya bozuk JSON reddedilir.
+            job = json.loads(raw)
             job_id = job["job_id"]
             result_key = f"wendococr:result:{job_id}"
 
-            logger.info("Is alindi: %s | %s", job_id[:8], job["fn_name"])
+            logger.info("Is alindi: %s | %s", job_id[:8], job.get("fn_key", "?"))
             start = time.time()
 
             try:
-                module = importlib.import_module(job["fn_module"])
-                fn = module
-                for part in job["fn_name"].split("."):
-                    fn = getattr(fn, part)
+                fn = _resolve_allowed(job["fn_key"])  # allowlist disi -> ValueError
+                result_data = fn(*job.get("args", []), **job.get("kwargs", {}))
 
-                result_data = fn(*job["args"], **job["kwargs"])
-
-                r.lpush(result_key, pickle.dumps({"data": result_data, "error": None}))
+                r.lpush(result_key, json.dumps({"data": result_data, "error": None}).encode("utf-8"))
                 r.expire(result_key, REDIS_RESULT_TTL)
 
                 elapsed = round(time.time() - start, 2)
@@ -299,7 +329,7 @@ def run_worker():
 
             except Exception as e:
                 logger.exception("Basarisiz: %s | %s", job_id[:8], e)
-                r.lpush(result_key, pickle.dumps({"data": None, "error": str(e)}))
+                r.lpush(result_key, json.dumps({"data": None, "error": str(e)}).encode("utf-8"))
                 r.expire(result_key, REDIS_RESULT_TTL)
 
             finally:

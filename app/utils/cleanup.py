@@ -61,6 +61,7 @@ async def cleanup_loop() -> None:
             await asyncio.sleep(UPLOAD_CLEANUP_INTERVAL_SEC)
             sweep_orphans()
         except asyncio.CancelledError:
-            break
+            # Iptal semantigini koru: yut ma, yeniden firlat (S7497).
+            raise
         except Exception as e:  # döngü asla ölmemeli
             logger.warning("Temizlik dongusu hatasi: %s", e)

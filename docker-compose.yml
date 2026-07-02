@@ -3,14 +3,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: uguryldz/wendococr:v1.0.2
+    image: uguryldz/wendococr:v1.0.6
     container_name: wendococr
     restart: unless-stopped
     ports:
       - "8099:8099"
     environment:
       UPLOAD_DIR: /tmp/wendococr
-      REDIS_URL: redis://redis:6379/1
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       OCR_QUEUE_MAX_SIZE: "100"
       OCR_QUEUE_TIMEOUT: "120"
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
@@ -24,6 +24,11 @@ services:
     # paylasmalari gerek. tmpfs container-ozel olur, worker dosyayi goremez.
     volumes:
       - ocr_uploads:/tmp/wendococr
+    # GUVENLIK: privilege yukseltme yok + tum Linux capability'leri dusur.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - uinfra
     deploy:
@@ -33,12 +38,12 @@ services:
           memory: 8G
 
   wendococr-worker:
-    image: uguryldz/wendococr:v1.0.2
+    image: uguryldz/wendococr:v1.0.6
     restart: unless-stopped
     command: ["bash", "entrypoint.sh", "worker"]
     environment:
       UPLOAD_DIR: /tmp/wendococr
-      REDIS_URL: redis://redis:6379/1
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       OCR_MAX_WORKERS: "3"
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       FLAGS_use_mkldnn: "0"
@@ -49,6 +54,10 @@ services:
     # KVKK: worker ayni RAM-backed paylasimli volume'u kullanir.
     volumes:
       - ocr_uploads:/tmp/wendococr
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD", "true"]
       interval: 30s

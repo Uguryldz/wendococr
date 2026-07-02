@@ -11,6 +11,7 @@ from app.config import (
     ALLOWED_EXTENSIONS,
     ALLOWED_IMAGE_TYPES,
     ALLOWED_PDF_TYPE,
+    DEBUG,
     EXT_TO_MIME,
     MAX_FILE_SIZE_BYTES,
     MAX_PAGES,
@@ -72,7 +73,8 @@ async def _process_upload(
     try:
         tmp_path.write_bytes(content)
     except Exception as e:
-        raise HTTPException(500, detail=f"Dosya yazılamadı: {e}")
+        logger.exception("Dosya yazılamadı: %s", e)
+        raise HTTPException(500, detail=f"Dosya yazılamadı: {e}" if DEBUG else "Dosya yazılamadı.")
 
     page_numbers = parse_page_range(page_range, max_pages=MAX_PAGES)
     pool = get_pool()
@@ -92,7 +94,8 @@ async def _process_upload(
     except QueueTimeoutError as e:
         raise HTTPException(504, detail=str(e))
     except Exception as e:
-        raise HTTPException(500, detail=f"İşleme hatası: {str(e)}")
+        logger.exception("İşleme hatası: %s", e)
+        raise HTTPException(500, detail=f"İşleme hatası: {e}" if DEBUG else "İşleme hatası.")
     else:
         # OCR basariliysa: gorsel obje tespiti (logo, qr, barkod, damga)
         try:
@@ -463,7 +466,8 @@ async def v1_findeksexport(
     try:
         tmp_path.write_bytes(content)
     except Exception as e:
-        raise HTTPException(500, detail=f"Dosya yazılamadı: {e}")
+        logger.exception("Dosya yazılamadı: %s", e)
+        raise HTTPException(500, detail=f"Dosya yazılamadı: {e}" if DEBUG else "Dosya yazılamadı.")
 
     start_time = time.perf_counter()
     try:
@@ -471,7 +475,8 @@ async def v1_findeksexport(
         loop = asyncio.get_event_loop()
         data = await loop.run_in_executor(None, process_findeks, tmp_path)
     except Exception as e:
-        raise HTTPException(500, detail=f"Findeks işleme hatası: {str(e)}")
+        logger.exception("Findeks işleme hatası: %s", e)
+        raise HTTPException(500, detail=f"Findeks işleme hatası: {e}" if DEBUG else "Findeks işleme hatası.")
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
@@ -484,7 +489,8 @@ async def v1_findeksexport(
         try:
             xlsx_bytes = await loop.run_in_executor(None, generate_xlsx, data)
         except Exception as e:
-            raise HTTPException(500, detail=f"Excel oluşturma hatası: {str(e)}")
+            logger.exception("Excel oluşturma hatası: %s", e)
+            raise HTTPException(500, detail=f"Excel oluşturma hatası: {e}" if DEBUG else "Excel oluşturma hatası.")
         filename = Path(file.filename or "findeks").stem + "_extract.xlsx"
         return Response(
             content=xlsx_bytes,

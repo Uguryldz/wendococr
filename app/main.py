@@ -76,10 +76,13 @@ app = FastAPI(
     openapi_tags=OPENAPI_TAGS,
     docs_url=None,  # ozel Swagger (sag-alt sabit imza icin) — asagida tanimli
 )
+# CORS (K3): "*" origin ile credentials BIRLIKTE kullanilamaz (CORS spec + tarayici
+# reddeder). Origin whitelist verilmisse credentials acilir; "*" ise kapatilir.
+_cors_wildcard = "*" in CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=not _cors_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )

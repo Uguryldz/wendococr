@@ -14,18 +14,20 @@ services:
     image: redis:7-alpine
     container_name: wendococr-redis
     restart: unless-stopped
+    # Parola OPSIYONEL: .env'de REDIS_PASSWORD tanimliysa --requirepass ile korur,
+    # bos ise parolasiz calisir (deploy'u kirmaz). pickle RCE (K1) zaten kodda kapali.
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      - --maxmemory
-      - "512mb"
-      - --maxmemory-policy
-      - "allkeys-lru"
+      - sh
+      - -c
+      - >
+        redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+        $${REDIS_PASSWORD:+--requirepass "$$REDIS_PASSWORD"}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli $${REDIS_PASSWORD:+-a \"$$REDIS_PASSWORD\"} ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -36,7 +38,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: uguryldz/wendococr:v1.0.2
+    image: uguryldz/wendococr:v1.0.6
     container_name: wendococr
     restart: unless-stopped
     depends_on:
@@ -46,7 +48,7 @@ services:
       - "8099:8099"
     environment:
       UPLOAD_DIR: /tmp/wendococr
-      REDIS_URL: redis://redis:6379/1
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       OCR_QUEUE_MAX_SIZE: "100"
       OCR_QUEUE_TIMEOUT: "300"
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
@@ -57,6 +59,10 @@ services:
       PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
     volumes:
       - ocr_uploads:/tmp/wendococr
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - wendococr_net
     deploy:
@@ -66,7 +72,7 @@ services:
           memory: 2G
 
   wendococr-worker:
-    image: uguryldz/wendococr:v1.0.2
+    image: uguryldz/wendococr:v1.0.6
     restart: unless-stopped
     depends_on:
       redis:
@@ -74,7 +80,7 @@ services:
     command: ["bash", "/app/entrypoint.sh", "worker"]
     environment:
       UPLOAD_DIR: /tmp/wendococr
-      REDIS_URL: redis://redis:6379/1
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       OCR_MAX_WORKERS: "3"
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       FLAGS_use_mkldnn: "0"
@@ -84,6 +90,10 @@ services:
       PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
     volumes:
       - ocr_uploads:/tmp/wendococr
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - wendococr_net
     deploy:
