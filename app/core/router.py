@@ -116,6 +116,10 @@ def process_document(
         from app.engines.ocr_txtimage import extract as ocr_txtimage_extract
         raw = ocr_txtimage_extract(path, page_numbers=page_numbers)
         return raw, "pdftxtimage"
+    if mode == "imagetexthybrid":
+        from app.engines.hybrid_imagetext import extract as hybrid_extract
+        raw = hybrid_extract(path, page_numbers=page_numbers)
+        return raw, "imagetexthybrid"
     if mode == "pdfimagetable":
         from app.engines.ocr_imagetable import extract as ocr_imagetable_extract
         raw = ocr_imagetable_extract(path, page_numbers=page_numbers)

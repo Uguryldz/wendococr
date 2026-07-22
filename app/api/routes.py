@@ -329,6 +329,30 @@ async def v1_pdftxtimage(
     return await _process_upload(file, "pdftxtimage", page_range=page_range, format=format)
 
 
+@router.post("/v1/imagetexthybrid", tags=["Hibrit OCR"], summary="Dijital metin + görsel-içi metin (birleşik)")
+async def v1_imagetexthybrid(
+    file: UploadFile = File(..., description="PDF veya resim"),
+    page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
+    format: str = Query("json", description="Çıktı: json veya text"),
+):
+    """
+    Resmi yazışmalar için tek geçişli hibrit çıkarım — belgenin **tamamı** çıkar.
+
+    Resmi yazılarda (mahkeme, savcılık, belediye, birlik) gövde dijital metindir ama
+    antet/logo/kaşe yalnızca görsel olarak gömülüdür. Bu endpoint ikisini de alır:
+
+    - Dijital metin doğrudan okunur (kesin, hızlı — OCR hatası yok).
+    - Metnin **kaplamadığı** bölgeler görselle kesiştirilip yalnız oralar OCR'lanır.
+    - Hiç metin katmanı yoksa (saf tarama) sayfanın tamamı OCR'lanır.
+    - Dijital metinde zaten geçen OCR satırları elenir (mükerrer kayıt olmaz).
+    - Satırlar konumlarına göre birleştirilir; **layout/okuma sırası korunur**.
+
+    **Yöntem:** PyMuPDF (metin + geometri) + RapidOCR (bölgesel, Türkçe ayarlı).
+    **Kullanım:** Karışık gelen belge akışında tek endpoint — hepsinde çalışır.
+    """
+    return await _process_upload(file, "imagetexthybrid", page_range=page_range, format=format)
+
+
 @router.post("/v1/pdfimagetable", tags=["Hibrit OCR"], summary="Tablo yapısı korumalı OCR")
 async def v1_pdfimagetable(
     file: UploadFile = File(..., description=_PDF_ONLY),

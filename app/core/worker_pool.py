@@ -208,11 +208,19 @@ class RedisWorkerPool:
     def _wait_result(self, result_key: str) -> dict:
         import redis
         r = redis.Redis.from_url(REDIS_URL, decode_responses=False)
-        while True:
-            raw = r.blpop(result_key, timeout=2)
-            if raw:
-                r.close()
-                return json.loads(raw[1])
+        try:
+            while True:
+                # redis-py 8+: sonuc henuz yokken blpop None yerine TimeoutError firlatir.
+                # Bu "hazir degil" demek — beklemeye devam et (ust katmanda
+                # OCR_QUEUE_TIMEOUT zaten genel sureyi sinirliyor).
+                try:
+                    raw = r.blpop(result_key, timeout=2)
+                except redis.exceptions.TimeoutError:
+                    continue
+                if raw:
+                    return json.loads(raw[1])
+        finally:
+            r.close()
 
     def status(self) -> dict:
         try:
@@ -303,7 +311,12 @@ def run_worker():
         try:
             _heartbeat()
 
-            raw = r.brpoplpush(REDIS_QUEUE_NAME, processing_key, timeout=5)
+            # redis-py 8+: bos kuyrukta blocking pop None dondurmez, TimeoutError firlatir.
+            # Bu normal bir "is yok" durumu — hata degil, sessizce dongu basa doner.
+            try:
+                raw = r.brpoplpush(REDIS_QUEUE_NAME, processing_key, timeout=5)
+            except redis_lib.exceptions.TimeoutError:
+                continue
             if raw is None:
                 continue
 

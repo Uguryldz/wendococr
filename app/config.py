@@ -110,8 +110,26 @@ ICR_USER_DEFINED_DPI = "300"
 EXTRACT_MODES = {
     "auto", "fatura", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets",
     "pdftxtimage", "pdfimagetable", "pdfimagepaddleocrlow",
+    "imagetexthybrid",
     "icr", "icrpaddle",
 }
+
+# ONNX Runtime thread sayısı. 0 = konteyner CPU kotasından otomatik (önerilen).
+# Host çekirdek sayısı kadar thread açmak cgroup limitli konteynerde ciddi yavaşlatır.
+RAPIDOCR_NUM_THREADS = int(os.environ.get("RAPIDOCR_NUM_THREADS", "0"))
+
+# ── imagetexthybrid: dijital metin + görsel-içi metin birleşik çıkarım ──
+# Resmi yazışmalarda antet/logo/kaşe yalnızca görsel olarak gömülü olur; metnin
+# kaplamadığı bantlar tespit edilip SADECE oralar OCR'lanır.
+# Render DPI: pdfimagev5 (auto) ile AYNI — o hat Türkçe diacritik için doğrulanmış.
+HYBRID_DPI = int(os.environ.get("HYBRID_DPI", str(OCR_DPI_RAPID)))
+HYBRID_GAP_MIN_HEIGHT = float(os.environ.get("HYBRID_GAP_MIN_HEIGHT", "10"))   # pt; altı gürültü
+HYBRID_MIN_REGION_WIDTH = float(os.environ.get("HYBRID_MIN_REGION_WIDTH", "20"))  # pt; ikon eler
+HYBRID_MIN_REGION_AREA = float(os.environ.get("HYBRID_MIN_REGION_AREA", "2000"))  # pt²; dilim eler
+HYBRID_TEXT_PAD = float(os.environ.get("HYBRID_TEXT_PAD", "2"))  # metin bbox şişirme (kırpık harf)
+HYBRID_MIN_INK_RATIO = float(os.environ.get("HYBRID_MIN_INK_RATIO", "0.002"))  # boş bant elemesi
+HYBRID_MIN_NATIVE_CHARS = int(os.environ.get("HYBRID_MIN_NATIVE_CHARS", "20"))  # altı = saf tarama
+HYBRID_DEDUP = os.environ.get("HYBRID_DEDUP", "1") == "1"      # dijital metinde geçeni tekrar yazma
 
 # PaddleOCR (low bellek) ayarları
 # Not: PaddleOCR bağımlılıkları Docker imajına eklenecek (requirements.txt).

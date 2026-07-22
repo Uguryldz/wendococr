@@ -21,6 +21,7 @@ from app.config import (
     RAPIDOCR_MIN_BOX_AREA,
     RAPIDOCR_MIN_CONFIDENCE,
     RAPIDOCR_MIN_TOKEN_LEN,
+    RAPIDOCR_NUM_THREADS,
     RAPIDOCR_THRESHOLD,
     RAPIDOCR_TEXT_SCORE,
 )
@@ -42,11 +43,18 @@ def _get_rapid_engine():
         try:
             # det_limit_side_len: taranmış sayfa boyutu (960 hız/kalite dengesi)
             # text_score: 0.4 — Türkçe/Latin karakterlerde daha toleranslı tanıma
+            # Thread havuzunu konteyner CPU kotasına sabitle: ONNX varsayılanı host
+            # çekirdek sayısıdır, cgroup limitli konteynerde aşırı-abonelik yapıp
+            # OCR'i kat kat yavaşlatır (cpus=2'de 13.4s -> 3.1s ölçüldü).
+            from app.utils.cpu_limit import effective_cpus
+            n_threads = RAPIDOCR_NUM_THREADS or effective_cpus()
             _rapid_engine = RapidOCR(params={
                 "Det.limit_side_len": RAPIDOCR_DET_LIMIT_SIDE_LEN,
                 # unclip_ratio: kesik harf/kenar kurtarma, box_thresh: soluk metin yakalama
                 "Det.unclip_ratio": RAPIDOCR_DET_UNCLIP_RATIO,
                 "Det.box_thresh": RAPIDOCR_DET_BOX_THRESH,
+                "EngineConfig.onnxruntime.intra_op_num_threads": n_threads,
+                "EngineConfig.onnxruntime.inter_op_num_threads": n_threads,
             })
             _rapid_engine.text_score = RAPIDOCR_TEXT_SCORE
         except Exception:
