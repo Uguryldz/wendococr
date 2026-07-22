@@ -38,7 +38,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: uguryldz/wendococr:v1.0.6
+    image: uguryldz/wendococr:v1.0.7
     container_name: wendococr
     restart: unless-stopped
     depends_on:
@@ -72,7 +72,7 @@ services:
           memory: 2G
 
   wendococr-worker:
-    image: uguryldz/wendococr:v1.0.6
+    image: uguryldz/wendococr:v1.0.7
     restart: unless-stopped
     depends_on:
       redis:
