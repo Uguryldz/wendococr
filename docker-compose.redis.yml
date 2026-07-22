@@ -78,6 +78,11 @@ services:
       redis:
         condition: service_healthy
     command: ["bash", "/app/entrypoint.sh", "worker"]
+    # Worker API sunmaz; imajdaki HTTP healthcheck'i miras alırsa hep "unhealthy"
+    # görünür. Canlılık zaten Redis heartbeat ile /health üzerinden izleniyor.
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 30s
     environment:
       UPLOAD_DIR: /tmp/wendococr
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}

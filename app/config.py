@@ -130,6 +130,8 @@ HYBRID_TEXT_PAD = float(os.environ.get("HYBRID_TEXT_PAD", "2"))  # metin bbox ş
 HYBRID_MIN_INK_RATIO = float(os.environ.get("HYBRID_MIN_INK_RATIO", "0.002"))  # boş bant elemesi
 HYBRID_MIN_NATIVE_CHARS = int(os.environ.get("HYBRID_MIN_NATIVE_CHARS", "20"))  # altı = saf tarama
 HYBRID_DEDUP = os.environ.get("HYBRID_DEDUP", "1") == "1"      # dijital metinde geçeni tekrar yazma
+# Bu uzunluğun altındaki OCR satırı yalnız birebir eşleşirse elenir (kısa antet koruması)
+HYBRID_DEDUP_MIN_LEN = int(os.environ.get("HYBRID_DEDUP_MIN_LEN", "12"))
 
 # PaddleOCR (low bellek) ayarları
 # Not: PaddleOCR bağımlılıkları Docker imajına eklenecek (requirements.txt).

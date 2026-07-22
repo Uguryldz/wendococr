@@ -15,8 +15,14 @@ Yöntem (sayfa başına):
   2. Metnin KAPLAMADIĞI yatay boşluk bantları bulunur (gap band).
   3. Bu bantlar gömülü görsel alanlarıyla kesiştirilir → aday bölgeler.
   4. Aday bölgede gerçekten mürekkep var mı diye ucuz bir ön kontrol yapılır.
-  5. Sadece bu bölgeler OCR'lanır (RapidOCR), koordinatlar sayfa uzayına geri map'lenir.
+  5. Aday bölge varsa sayfa BİR KEZ bütün olarak OCR'lanır, sonuç bu bölgelere göre
+     filtrelenir. Hiç aday yoksa OCR açılmaz (saf dijital sayfa 0 sn'de biter).
   6. Dijital satırlar + OCR satırları y/x'e göre birleştirilip layout korunarak yazılır.
+
+Neden bölgeyi kırpıp değil, tam sayfa OCR'layıp filtreliyoruz:
+  Stilize antet/logo yazıları sayfa bağlamında belirgin biçimde daha doğru okunuyor.
+  Ölçüm (TKBB yazısı): tam sayfa "TKBB"/"BIRLIĞI", kırpılmış bant "TIB"/"BIRIGI".
+  Üstelik N bölge yerine tek geçiş olduğu için daha da hızlı.
 
 Neden "bant" temelli (2B maske değil):
   Tam sayfayı kaplayan görselde metnin komplementi tek bir bağlantılı "çerçeve"dir;
@@ -37,6 +43,7 @@ import numpy as np
 
 from app.config import (
     HYBRID_DEDUP,
+    HYBRID_DEDUP_MIN_LEN,
     HYBRID_DPI,
     HYBRID_GAP_MIN_HEIGHT,
     HYBRID_MIN_INK_RATIO,
@@ -218,13 +225,25 @@ def _dedup(ocr_lines: list[dict[str, Any]], native: list[dict[str, Any]]) -> lis
     if not HYBRID_DEDUP or not native:
         return ocr_lines
     haystack = _norm(" ".join(l["text"] for l in native))
+    exact = {_norm(l["text"]) for l in native}
     kept = []
     for l in ocr_lines:
         n = _norm(l["text"])
-        if len(n) >= 3 and n in haystack:
+        if not n:
+            continue
+        # Kısa ifadeler yalnızca birebir eşleşirse elenir: "TKBB" antetini dijital
+        # metindeki "tkbb.org.tr" içinde geçiyor diye atmamalıyız.
+        if n in exact or (len(n) >= HYBRID_DEDUP_MIN_LEN and n in haystack):
             continue
         kept.append(l)
     return kept
+
+
+def _in_regions(bbox: list[float], regions: list[fitz.Rect]) -> bool:
+    """Satırın merkezi aday bölgelerden birinin içinde mi?"""
+    cx = (bbox[0] + bbox[2]) / 2
+    cy = (bbox[1] + bbox[3]) / 2
+    return any(r.x0 <= cx <= r.x1 and r.y0 <= cy <= r.y1 for r in regions)
 
 
 def _process_page(page) -> dict[str, Any]:
@@ -236,14 +255,21 @@ def _process_page(page) -> dict[str, Any]:
         lines = _ocr_region(page, fitz.Rect(page.rect))
         mode = "ocr_full"
     else:
-        ocr_lines: list[dict[str, Any]] = []
-        for clip in _candidate_regions(page, native):
-            if not _has_ink(page, clip):
-                continue
-            ocr_lines.extend(_ocr_region(page, clip))
-        ocr_lines = _dedup(ocr_lines, native)
-        lines = native + ocr_lines
-        mode = "hybrid" if ocr_lines else "native"
+        # Aday bölge yoksa hiç OCR açma — saf dijital sayfalar 0 sn'de biter.
+        regions = [r for r in _candidate_regions(page, native) if _has_ink(page, r)]
+        if not regions:
+            lines, mode = native, "native"
+        else:
+            # Bölgeleri TEK TEK kırpıp OCR'lamak tanımayı bozuyor: logo/antet gibi
+            # stilize yazılar sayfa bağlamında belirgin biçimde daha doğru okunuyor
+            # (ölçüm: tam sayfa "TKBB"/"BIRLIĞI", kırpılmış bant "TIB"/"BIRIGI").
+            # Bu yüzden sayfa bir kez bütün olarak OCR'lanır, sonuç aday bölgelere
+            # göre filtrelenir. Ayrıca N bölge yerine tek geçiş — daha da hızlı.
+            ocr_lines = [l for l in _ocr_region(page, fitz.Rect(page.rect))
+                         if _in_regions(l["bbox"], regions)]
+            ocr_lines = _dedup(ocr_lines, native)
+            lines = native + ocr_lines
+            mode = "hybrid" if ocr_lines else "native"
 
     lines.sort(key=lambda l: (round(l["bbox"][1], 1), l["bbox"][0]))
     text_blocks = [{"text": l["text"], "bbox": l["bbox"], "source": l["source"]} for l in lines]
