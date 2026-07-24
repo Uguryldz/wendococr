@@ -44,6 +44,10 @@ import numpy as np
 from app.config import (
     HYBRID_DEDUP,
     HYBRID_DEDUP_MIN_LEN,
+    HYBRID_RESCAN_BAD_TEXT,
+    HYBRID_RESCAN_IMAGE_RATIO,
+    HYBRID_RESCAN_MIN_TOKENS,
+    HYBRID_RESCAN_SUSPECT_RATIO,
     HYBRID_DPI,
     HYBRID_GAP_MIN_HEIGHT,
     HYBRID_MIN_INK_RATIO,
@@ -239,6 +243,45 @@ def _dedup(ocr_lines: list[dict[str, Any]], native: list[dict[str, Any]]) -> lis
     return kept
 
 
+# Bozuk-OCR imzalari: kelime ici buyuk/kucuk sicramasi (oSMANGAZI), harf-rakam karisimi
+# (33l l8, 202611601), kelime icine sizmis ozel karakter (Re§mi, yururlug€), kisa kesme eki ('7).
+_SUSPECT_TOKEN_RE = re.compile(
+    r"[a-zçğıöşü][A-ZÇĞİÖŞÜ]|[§€|‚]|\d[a-zA-ZçğıöşüÇĞİÖŞÜ]|[a-zA-ZçğıöşüÇĞİÖŞÜ]\d|'[a-zçğıöşü]{1,2}\b"
+)
+
+
+def _max_image_ratio(page) -> float:
+    """Sayfadaki en büyük gömülü görselin sayfayı kaplama oranı (0..1)."""
+    page_area = abs(page.rect.width * page.rect.height)
+    if page_area <= 0:
+        return 0.0
+    best = 0.0
+    for r in _image_rects(page):
+        best = max(best, abs(r.width * r.height) / page_area)
+    return best
+
+
+def _text_layer_untrustworthy(page, native: list[dict[str, Any]]) -> bool:
+    """
+    Metin katmanı başka bir aracın BOZUK OCR çıktısı mı?
+
+    İKİ koşul birden aranır (ölçümle doğrulandı):
+      - sayfa tam sayfa görsel (taranmış belge göstergesi), VE
+      - metin katmanındaki şüpheli token oranı yüksek.
+    Tek başına şüpheli oran YETMEZ: fatura/adres kodları ("EM12024000004020", "CK1S8 K.4 D.17")
+    doğal olarak %12-28 üretir ama o sayfalar tam sayfa görsel değildir — onlara dokunulmaz.
+    """
+    if not HYBRID_RESCAN_BAD_TEXT:
+        return False
+    if _max_image_ratio(page) < HYBRID_RESCAN_IMAGE_RATIO:
+        return False
+    tokens = [t for t in re.split(r"\s+", " ".join(l["text"] for l in native)) if len(t) > 1]
+    if len(tokens) < HYBRID_RESCAN_MIN_TOKENS:
+        return False
+    suspect = sum(1 for t in tokens if _SUSPECT_TOKEN_RE.search(t))
+    return (suspect / len(tokens)) >= HYBRID_RESCAN_SUSPECT_RATIO
+
+
 def _in_regions(bbox: list[float], regions: list[fitz.Rect]) -> bool:
     """Satırın merkezi aday bölgelerden birinin içinde mi?"""
     cx = (bbox[0] + bbox[2]) / 2
@@ -254,6 +297,11 @@ def _process_page(page) -> dict[str, Any]:
         # Saf taranmış sayfa: tüm sayfayı OCR'la
         lines = _ocr_region(page, fitz.Rect(page.rect))
         mode = "ocr_full"
+    elif _text_layer_untrustworthy(page, native):
+        # Metin katmanı VAR ama başka bir aracın bozuk OCR'ı (tarih "2l l0'7 /2026" gibi).
+        # Katmanı tümden yok say, sayfayı kendimiz OCR'la — kendi motorumuz belirgin daha doğru.
+        lines = _ocr_region(page, fitz.Rect(page.rect))
+        mode = "ocr_rescan"
     else:
         # Aday bölge yoksa hiç OCR açma — saf dijital sayfalar 0 sn'de biter.
         regions = [r for r in _candidate_regions(page, native) if _has_ink(page, r)]

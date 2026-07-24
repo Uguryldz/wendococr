@@ -130,6 +130,15 @@ HYBRID_TEXT_PAD = float(os.environ.get("HYBRID_TEXT_PAD", "2"))  # metin bbox ş
 HYBRID_MIN_INK_RATIO = float(os.environ.get("HYBRID_MIN_INK_RATIO", "0.002"))  # boş bant elemesi
 HYBRID_MIN_NATIVE_CHARS = int(os.environ.get("HYBRID_MIN_NATIVE_CHARS", "20"))  # altı = saf tarama
 HYBRID_DEDUP = os.environ.get("HYBRID_DEDUP", "1") == "1"      # dijital metinde geçeni tekrar yazma
+# BOZUK METIN KATMANI YENIDEN TARAMA: Bazi taranmis belgelere baska bir arac kotu OCR yapip
+# metin katmanini gommus olur (orn. tarih "21/07/2026" yerine "2l l0'7 /2026"). Sayfa TAM SAYFA
+# GORSEL ise VE metin katmani bozuk-OCR imzasi tasiyorsa o katman yok sayilir, sayfa yeniden
+# OCR'lanir. IKI KOSUL DA sart: sirf supheli oran yetmez — fatura/adres kodlari ("EM12024000004020",
+# "CK1S8 K.4 D.17") dogal olarak yuksek oran uretir ama o sayfalar tam-sayfa gorsel degildir.
+HYBRID_RESCAN_BAD_TEXT = os.environ.get("HYBRID_RESCAN_BAD_TEXT", "1") == "1"
+HYBRID_RESCAN_IMAGE_RATIO = float(os.environ.get("HYBRID_RESCAN_IMAGE_RATIO", "0.9"))  # tam sayfa görsel
+HYBRID_RESCAN_SUSPECT_RATIO = float(os.environ.get("HYBRID_RESCAN_SUSPECT_RATIO", "0.10"))
+HYBRID_RESCAN_MIN_TOKENS = int(os.environ.get("HYBRID_RESCAN_MIN_TOKENS", "40"))  # altı = oran anlamsız
 # Bu uzunluğun altındaki OCR satırı yalnız birebir eşleşirse elenir (kısa antet koruması)
 HYBRID_DEDUP_MIN_LEN = int(os.environ.get("HYBRID_DEDUP_MIN_LEN", "12"))
 
