@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: uguryldz/wendococr:v1.0.8
+    image: uguryldz/wendococr:v1.0.9
     container_name: wendococr
     restart: unless-stopped
     ports:
@@ -38,7 +38,7 @@ services:
           memory: 8G
 
   wendococr-worker:
-    image: uguryldz/wendococr:v1.0.8
+    image: uguryldz/wendococr:v1.0.9
     restart: unless-stopped
     command: ["bash", "entrypoint.sh", "worker"]
     environment:

@@ -51,6 +51,20 @@ def _analyze_pdf_page(fitz_page) -> str:
             pass
 
     if len(text) >= MIN_TEXT_LENGTH_SEARCHABLE:
+        # BOZUK GOMULU METIN KATMANI: sayfa tam-sayfa gorsel VE metin katmani baska bir
+        # aracin kotu OCR ciktisiysa (tarih "21/07/2026" yerine "2l l0'7 /2026"), o cop
+        # katmani okumak yerine kendi motorumuzla yeniden OCR'la. Iki kosul birden aranir
+        # (imagetexthybrid ile ayni kural) — sirf supheli oran fatura/adres kodlarinda
+        # yanlis pozitif verir.
+        try:
+            from app.engines.hybrid_imagetext import _text_layer_untrustworthy
+            native = [{"text": text}]
+            if _text_layer_untrustworthy(fitz_page, native):
+                if AUTO_FORCE_PADDLEOCR_LOW:
+                    return "pdfimagepaddleocrlow"
+                return "pdfimagev5"
+        except Exception:
+            pass
         # Metin var — tablo kontrolü yap (pdfplumber lazy)
         return "pdftext_or_table"  # tablo kontrolü ayrıca yapılacak
     if AUTO_FORCE_PADDLEOCR_LOW:
