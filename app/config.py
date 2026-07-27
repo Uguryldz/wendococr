@@ -50,8 +50,12 @@ RAPIDOCR_MIN_CONFIDENCE = 0.35
 RAPIDOCR_MIN_BOX_AREA = 8.0
 
 # RapidOCR detection ince ayar (doruluk; CPU-uyumlu, model degismez)
-# unclip_ratio: tespit kutusunu disa genisletir -> kesik harf/kenar kurtarir (1.6 default)
-RAPIDOCR_DET_UNCLIP_RATIO = 1.8
+# unclip_ratio: tespit kutusunu disa genisletir. 1.8 idi ama SIK SATIRLI belgelerde
+# ust/alt satir kutulari birlesip RapidOCR iki satiri ust uste binmis gorup COP uretiyordu
+# (resmi yazi maddeleri "a i k in sn a" gibi yutuluyordu). Olcum: 1.5 her belgede esit ya da
+# DAHA IYI (ec403d31'de +260 karakter kurtardi, digerlerinde fark ±2-4 gurultu). RapidOCR
+# default'u da 1.5 — geri donuldu.
+RAPIDOCR_DET_UNCLIP_RATIO = 1.5
 # box_thresh: kutu guven esigi -> dusurmek soluk/ince metni yakalar (0.5 default)
 RAPIDOCR_DET_BOX_THRESH = 0.4
 
