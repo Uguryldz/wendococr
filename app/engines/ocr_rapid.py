@@ -180,14 +180,15 @@ def _oriented_ocr(engine, img: np.ndarray, auto_rotate: bool):
     if not AUTO_ROTATE_VERIFY:
         r, w, h = _enhance_and_ocr(engine, img)
         return img, r, w, h
-    # Düşük güven + sıfırdan farklı açı: OSD yönüne GÜVEN, ama 0° ile karşılaştır.
-    # OSD yönü fişlerde bile doğru; sadece 0° skoru öneriyi MARJIN kadar AŞARSA 0°'de kal
-    # (OSD'nin nadiren dik belgeyi yanlış döndürmesine karşı emniyet).
+    # Düşük güven + sıfırdan farklı açı: OSD bir yön ÖNERDİ (bağımsız kanıt). 0° ve önerilen
+    # açıyı OCR'layıp karşılaştır; önerilen açı 0°'den DAHA ÇOK gerçek kelime üretirse ona dön
+    # (marj YOK — iki bağımsız sinyal (OSD + kelime) aynı yönü gösteriyor). Aksi halde 0°'de kal.
+    # Not: prj18744'te kelime yakın (145 vs 150) ama 270° layout'u çok daha doğru okuyor; marj
+    # bunu bloklıyordu. OSD zaten yönü doğruladığı için burada 0°'ye ekstra öncelik verilmez.
     r0, w0, h0 = _enhance_and_ocr(engine, img)
     rimg = apply_rotation(img, angle)
     rr, wr, hr = _enhance_and_ocr(engine, rimg)
-    # Döndürülmüş yön SADECE belirgin daha çok gerçek kelime üretirse seçilir; aksi halde 0°.
-    if _score(rr) > _score(r0) * (1.0 + AUTO_ROTATE_VERIFY_MARGIN):
+    if _score(rr) > _score(r0):
         return rimg, rr, wr, hr
     return img, r0, w0, h0
 
