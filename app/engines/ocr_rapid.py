@@ -25,6 +25,7 @@ from app.config import (
     AUTO_ROTATE_MIN_CONF,
     AUTO_ROTATE_VERIFY,
     AUTO_ROTATE_VERIFY_MARGIN,
+    AUTO_ROTATE_VOTE,
     RAPIDOCR_THRESHOLD,
     RAPIDOCR_TEXT_SCORE,
 )
@@ -133,21 +134,41 @@ def _score(result) -> float:
         return 0.0
 
 
+def _four_way_vote(engine, img, apply_rotation):
+    """0/90/180/270'i OCR'layıp en çok gerçek kelime üreteni seç (OSD çökünce fallback).
+    0°'ye MARJIN kadar öncelik verilir -> eşit/belirsizde döndürme yok (güvenli)."""
+    best = None  # (score, img, result, w, h)
+    for ang in (0, 90, 180, 270):
+        cand = img if ang == 0 else apply_rotation(img, ang)
+        r, w, h = _enhance_and_ocr(engine, cand)
+        s = _score(r) * (1.0 + AUTO_ROTATE_VERIFY_MARGIN) if ang == 0 else _score(r)
+        if best is None or s > best[0]:
+            best = (s, cand, r, w, h)
+    return best[1], best[2], best[3], best[4]
+
+
 def _oriented_ocr(engine, img: np.ndarray, auto_rotate: bool):
     """
     Yön kararı + OCR. Döner: (kullanılan_img, result, w, h).
     Düşük güvende OCR-skoru ile doğrulama yapar (bkz. config AUTO_ROTATE_VERIFY).
+    OSD çökerse 4-yön OCR oylamasına düşer (AUTO_ROTATE_VOTE).
     """
     if not auto_rotate:
         r, w, h = _enhance_and_ocr(engine, img)
         return img, r, w, h
     try:
-        from app.utils.orientation import detect_rotation_candidate, apply_rotation
+        from app.utils.orientation import detect_rotation_candidate, apply_rotation, OSD_UNKNOWN
     except Exception:
         r, w, h = _enhance_and_ocr(engine, img)
         return img, r, w, h
 
     angle, conf = detect_rotation_candidate(img)
+    if angle == OSD_UNKNOWN:
+        # OSD karar veremedi -> 4-yön oylama (açıksa); değilse dokunma.
+        if AUTO_ROTATE_VOTE:
+            return _four_way_vote(engine, img, apply_rotation)
+        r, w, h = _enhance_and_ocr(engine, img)
+        return img, r, w, h
     if angle == 0:
         r, w, h = _enhance_and_ocr(engine, img)
         return img, r, w, h

@@ -136,6 +136,10 @@ AUTO_ROTATE_VERIFY_MIN_SIDE = int(os.environ.get("AUTO_ROTATE_VERIFY_MIN_SIDE", 
 # OSD yönüne GÜVEN; sadece 0° skoru önerilen açıyı bu marj kadar AŞARSA 0°'de kal (override).
 # OSD yönü fişlerde bile doğru çıkıyor; ters mantık (dönmüş kazanmalı) ince farklarda kaçırıyordu.
 AUTO_ROTATE_VERIFY_MARGIN = float(os.environ.get("AUTO_ROTATE_VERIFY_MARGIN", "0.04"))  # %4
+# OSD ÇÖKERSE 4-yön OCR oylaması: OSD düşük çözünürlüklü fişte hata verip yönü hiç
+# bulamayabiliyor (ör. 1080x506 fiş). Bu durumda 0/90/180/270 dördü de OCR'lanır, en çok
+# gerçek kelime üreten seçilir (0°'ye küçük öncelik). 4 OCR maliyeti SADECE OSD çökünce.
+AUTO_ROTATE_VOTE = os.environ.get("AUTO_ROTATE_VOTE", "1") == "1"
 
 # ONNX Runtime thread sayısı. 0 = konteyner CPU kotasından otomatik (önerilen).
 # Host çekirdek sayısı kadar thread açmak cgroup limitli konteynerde ciddi yavaşlatır.

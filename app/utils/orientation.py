@@ -88,11 +88,16 @@ def detect_rotation(img: np.ndarray) -> int:
     return rotate if rotate in _ROTATE_CODE else 0
 
 
+OSD_UNKNOWN = -1  # OSD çöktü/karar veremedi -> çağıran 4-yön OCR oylaması yapsın
+
+
 def detect_rotation_candidate(img: np.ndarray) -> tuple[int, float]:
     """
-    OSD ham adayı: (açı, güven). Güven eşiği UYGULANMAZ — çağıran karar verir
-    (düşük güvende OCR-skoru ile doğrulama yapmak için). Boyut eşiği yine geçerli.
-    Açı 0 veya güven okunamazsa (0, 0.0) döner.
+    OSD ham adayı: (açı, güven). Güven eşiği UYGULANMAZ — çağıran karar verir.
+    - (0, 0.0): OSD "dik" dedi VEYA auto-rotate kapalı/boyut altı -> döndürme.
+    - (OSD_UNKNOWN, 0.0): OSD ÇÖKTÜ (düşük çözünürlüklü fiş vb.) -> çağıran 4-yön
+      OCR oylaması yapmalı (OSD tespit edemedi ama belge yine de yatık olabilir).
+    - (90/180/270, conf): OSD bir açı önerdi.
     """
     if not _rotate_enabled() or img is None or img.size == 0:
         return 0, 0.0
@@ -109,8 +114,9 @@ def detect_rotation_candidate(img: np.ndarray) -> tuple[int, float]:
         osd = pytesseract.image_to_osd(gray, output_type=pytesseract.Output.DICT)
         rotate = int(osd.get("rotate", 0)) % 360
         conf = float(osd.get("orientation_conf", 0) or 0)
-    except (Exception, TypeError, ValueError):
-        return 0, 0.0
+    except Exception:
+        # OSD hata verdi (çözünürlük/az metin) -> "bilinmiyor": 4-yön oylamaya bırak
+        return OSD_UNKNOWN, 0.0
     return (rotate if rotate in _ROTATE_CODE else 0), conf
 
 
