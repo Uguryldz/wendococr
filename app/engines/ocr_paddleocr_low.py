@@ -189,6 +189,13 @@ def extract(
     if img is None:
         return []
 
+    # Otomatik yön düzeltme (90°/180°/270°) — yatay/ters taranmış sayfa dik konuma gelir.
+    try:
+        from app.utils.orientation import auto_orient
+        img, _rot = auto_orient(img)
+    except Exception:
+        pass
+
     out_dir = UPLOAD_DIR  # /tmp/wendococr gibi
 
     last_error: Exception | None = None

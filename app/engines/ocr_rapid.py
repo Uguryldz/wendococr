@@ -99,9 +99,14 @@ def _clean_text(text: str) -> str:
 def _run_rapidocr(
     image_bytes: bytes | None = None,
     image_array: np.ndarray | None = None,
+    auto_rotate: bool = True,
 ) -> tuple[list[tuple[list[float], str]], int, int]:
     """
     Hız odaklı RapidOCR motoru.
+
+    auto_rotate=False: yön düzeltme atlanır. Çağıran, kutuları ORIJINAL sayfa
+    koordinatına geri map'liyorsa (hybrid _ocr_region) döndürme koordinatları
+    kaydıracağı için kapatılmalı; sayfa yönü çağıran tarafta ele alınır.
     """
     engine = _get_rapid_engine()
     if engine is None:
@@ -118,6 +123,15 @@ def _run_rapidocr(
 
     if img is None:
         return [], 0, 0
+
+    # 1b. Otomatik yön düzeltme: yatay/ters gelmiş taranmış sayfayı dik konuma getir
+    #     (Tesseract OSD). Küçük bölgelerde util boyut eşiğiyle kendini devre dışı bırakır.
+    if auto_rotate:
+        try:
+            from app.utils.orientation import auto_orient
+            img, _rot = auto_orient(img)
+        except Exception:
+            pass
 
     h, w = img.shape[:2]
 

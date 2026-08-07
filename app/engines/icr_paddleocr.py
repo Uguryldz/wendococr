@@ -157,6 +157,13 @@ def extract(
     if img is None:
         return []
 
+    # Otomatik yön düzeltme (güven düşükse döndürmez — el yazısında güvenli).
+    try:
+        from app.utils.orientation import auto_orient
+        img, _rot = auto_orient(img)
+    except Exception:
+        pass
+
     h, w = img.shape[:2]
 
     # El yazısı preprocessing

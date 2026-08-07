@@ -96,6 +96,13 @@ def preprocess_image(
     if image is None or image.size == 0:
         return image
     out = image.copy()
+    # Otomatik yön düzeltme (90°/180°/270°) — grayscale/threshold'dan ÖNCE, renkli görüntüde.
+    # Boyut eşiği küçük gömülü-resim kırpıklarını (Findeks) otomatik atlar.
+    try:
+        from app.utils.orientation import auto_orient
+        out, _rot = auto_orient(out)
+    except Exception:
+        pass
     if len(out.shape) == 3 and grayscale:
         out = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
     if sharpen and len(out.shape) == 2:

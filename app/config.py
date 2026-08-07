@@ -118,6 +118,17 @@ EXTRACT_MODES = {
     "icr", "icrpaddle",
 }
 
+# ── AUTO-ROTATE: yatay/ters gelmiş taranmış belgeleri OCR öncesi dik konuma getir ──
+# Tesseract OSD ile sayfa yönü (0/90/180/270) tespit edilir. Güven eşiğin altındaysa
+# DOKUNULMAZ (yanlış döndürüp bozmamak için). deskew'den farklı: o küçük eğikliği,
+# bu 90°/180° tam sayfa dönüşünü düzeltir. Tüm raster OCR motorlarında geçerli.
+AUTO_ROTATE = os.environ.get("AUTO_ROTATE", "1") == "1"
+AUTO_ROTATE_MIN_CONF = float(os.environ.get("AUTO_ROTATE_MIN_CONF", "2.0"))  # OSD güven alt sınırı
+AUTO_ROTATE_MAX_SIDE = int(os.environ.get("AUTO_ROTATE_MAX_SIDE", "1600"))   # OSD için küçültme
+# Sadece tam-sayfa ölçekli görüntüde çalış: hybrid'in ince antet/bölge OCR'ında (küçük
+# görüntü) yön tespiti hem gereksiz hem riskli — kısa kenar bunun altındaysa dokunma.
+AUTO_ROTATE_MIN_SIDE = int(os.environ.get("AUTO_ROTATE_MIN_SIDE", "1000"))
+
 # ONNX Runtime thread sayısı. 0 = konteyner CPU kotasından otomatik (önerilen).
 # Host çekirdek sayısı kadar thread açmak cgroup limitli konteynerde ciddi yavaşlatır.
 RAPIDOCR_NUM_THREADS = int(os.environ.get("RAPIDOCR_NUM_THREADS", "0"))

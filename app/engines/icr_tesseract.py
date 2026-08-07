@@ -129,6 +129,14 @@ def _run_icr_tesseract(
     else:
         return [], 0, 0
 
+    # Otomatik yön düzeltme. El yazısında OSD güveni genelde düşük kalır -> döndürmez
+    # (güvenli): yalnız net baskılı yön ipuçları varsa 90°/180° düzeltir.
+    try:
+        from app.utils.orientation import auto_orient
+        img, _rot = auto_orient(img)
+    except Exception:
+        pass
+
     h, w = img.shape[:2]
 
     # İki preprocessing dener: soft (karma belge) + hard (saf el yazısı)

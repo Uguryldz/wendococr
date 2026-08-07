@@ -207,7 +207,10 @@ def _ocr_region(page, clip: fitz.Rect) -> list[dict[str, Any]]:
         img = np.pad(img, ((0, pad_h), (0, pad_w), (0, 0)), constant_values=255)
     img = np.ascontiguousarray(img)
 
-    lines_bbox, _, _ = _run_rapidocr(image_array=img)
+    # auto_rotate=False: kutular aşağıda ORIJINAL sayfa koordinatına map'leniyor;
+    # motor içinde döndürme koordinatları kaydırırdı. Hybrid belgeleri (dijital metin +
+    # antet) zaten dik gelir; saf taranmış/rescan sayfaların yönü ayrı ele alınır.
+    lines_bbox, _, _ = _run_rapidocr(image_array=img, auto_rotate=False)
 
     out: list[dict[str, Any]] = []
     for bbox, text in lines_bbox:
