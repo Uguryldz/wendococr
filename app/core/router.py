@@ -96,11 +96,20 @@ def process_document(
     mode: str = "auto",
     content_type: str | None = None,
     page_numbers: list[int] | None = None,
+    auto_rotate: bool | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     """
     Belgeyi işler; sayfa bazlı karar (auto modda) uygular.
     Motorlar ilk kullanımda yüklenir.
+    auto_rotate: True/False istek-başına yön düzeltme; None = config varsayılanı.
     """
+    # İstek-başına auto-rotate override'ını bu iş için ayarla (nested motor çağrıları görür).
+    try:
+        from app.utils.orientation import set_auto_rotate
+        set_auto_rotate(auto_rotate)
+    except Exception:
+        pass
+
     if mode not in EXTRACT_MODES:
         mode = "auto"
     is_fatura = (mode == "fatura")

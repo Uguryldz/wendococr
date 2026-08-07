@@ -58,6 +58,7 @@ async def _process_upload(
     *,
     page_range: str | None = None,
     format: str = "json",
+    auto_rotate: bool = True,
 ) -> ExtractResponse | PlainTextResponse:
     content = await file.read()
     if len(content) > MAX_FILE_SIZE_BYTES:
@@ -88,6 +89,7 @@ async def _process_upload(
             mode=mode,
             content_type=file.content_type or EXT_TO_MIME.get(suffix),
             page_numbers=page_numbers,
+            auto_rotate=auto_rotate,
         )
     except QueueFullError as e:
         raise HTTPException(503, detail=str(e))
@@ -209,6 +211,7 @@ async def v1_auto(
     file: UploadFile = File(..., description=_PDF_OR_IMAGE),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     Belgeyi analiz eder, **sayfa bazlı** en uygun motoru otomatik seçer.
@@ -220,7 +223,7 @@ async def v1_auto(
     | PDF — metin katmanı var, tablo var | pdfplumber (pdftexttable) |
     | PDF — metin katmanı yok | RapidOCR (pdfimagev5) |
     """
-    return await _process_upload(file, "auto", page_range=page_range, format=format)
+    return await _process_upload(file, "auto", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -232,6 +235,7 @@ async def v1_pdftext(
     file: UploadFile = File(..., description=_PDF_ONLY),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     Dijital (searchable) PDF'ten metin çıkarımı. OCR kullanmaz.
@@ -239,7 +243,7 @@ async def v1_pdftext(
     **Motor:** PyMuPDF — en hızlı yöntem.
     **Çıktı:** Koordinatlı metin blokları (satır bazlı bbox).
     """
-    return await _process_upload(file, "pdftext", page_range=page_range, format=format)
+    return await _process_upload(file, "pdftext", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 @router.post("/v1/pdftexttable", tags=["Dijital PDF"], summary="Metin + tablo çıkarımı")
@@ -247,6 +251,7 @@ async def v1_pdftexttable(
     file: UploadFile = File(..., description=_PDF_ONLY),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     Dijital PDF'ten metin ve tablo çıkarımı. Tablo ağırlıklı belgeler için.
@@ -254,7 +259,7 @@ async def v1_pdftexttable(
     **Motor:** pdfplumber.
     **Çıktı:** Koordinatlı metin blokları + yapısal tablolar (satır/sütun + hücre bbox).
     """
-    return await _process_upload(file, "pdftexttable", page_range=page_range, format=format)
+    return await _process_upload(file, "pdftexttable", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -266,6 +271,7 @@ async def v1_pdfimagev5(
     file: UploadFile = File(..., description=_PDF_OR_IMAGE),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     Taranmış PDF veya resim üzerinde OCR.
@@ -274,7 +280,7 @@ async def v1_pdfimagev5(
     **Hız:** En hızlı OCR motoru.
     **Türkçe:** Diacritik post-processing + CLAHE + unsharp mask.
     """
-    return await _process_upload(file, "pdfimagev5", page_range=page_range, format=format)
+    return await _process_upload(file, "pdfimagev5", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 @router.post("/v1/pdfimagets", tags=["Taranmış Belge OCR"], summary="Tesseract Türkçe")
@@ -282,6 +288,7 @@ async def v1_pdfimagets(
     file: UploadFile = File(..., description=_PDF_OR_IMAGE),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     Tesseract LSTM ile Türkçe OCR.
@@ -290,7 +297,7 @@ async def v1_pdfimagets(
     **Doğruluk:** Türkçe'de en yüksek doğruluk. Birden fazla PSM dener, en iyisini seçer.
     **Türkçe:** Diacritik post-processing + sharpen + CLAHE.
     """
-    return await _process_upload(file, "pdfimagets", page_range=page_range, format=format)
+    return await _process_upload(file, "pdfimagets", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 @router.post("/v1/pdfimagepaddleocrlow", tags=["Taranmış Belge OCR"], summary="PaddleOCR (düşük bellek)")
@@ -298,6 +305,7 @@ async def v1_pdfimagepaddleocrlow(
     file: UploadFile = File(..., description=_PDF_OR_IMAGE),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     PaddleOCR PP-OCRv4 ile taranmış belge OCR (düşük bellek profili).
@@ -306,7 +314,7 @@ async def v1_pdfimagepaddleocrlow(
     **Kullanım:** Docker/kısıtlı RAM ortamları.
     **Türkçe:** Diacritik post-processing + CLAHE + sharpen.
     """
-    return await _process_upload(file, "pdfimagepaddleocrlow", page_range=page_range, format=format)
+    return await _process_upload(file, "pdfimagepaddleocrlow", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -318,6 +326,7 @@ async def v1_pdftxtimage(
     file: UploadFile = File(..., description=_PDF_ONLY),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     Hem metin katmanı hem gömülü resim içeren PDF'ler (Findeks raporu tarzı).
@@ -326,7 +335,7 @@ async def v1_pdftxtimage(
     **Kullanım:** Findeks, kredi raporu gibi hibrit belgeler.
     **Kilitli endpoint.**
     """
-    return await _process_upload(file, "pdftxtimage", page_range=page_range, format=format)
+    return await _process_upload(file, "pdftxtimage", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 @router.post("/v1/imagetexthybrid", tags=["Hibrit OCR"], summary="Dijital metin + görsel-içi metin (birleşik)")
@@ -334,6 +343,7 @@ async def v1_imagetexthybrid(
     file: UploadFile = File(..., description="PDF veya resim"),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     Resmi yazışmalar için tek geçişli hibrit çıkarım — belgenin **tamamı** çıkar.
@@ -350,7 +360,7 @@ async def v1_imagetexthybrid(
     **Yöntem:** PyMuPDF (metin + geometri) + RapidOCR (bölgesel, Türkçe ayarlı).
     **Kullanım:** Karışık gelen belge akışında tek endpoint — hepsinde çalışır.
     """
-    return await _process_upload(file, "imagetexthybrid", page_range=page_range, format=format)
+    return await _process_upload(file, "imagetexthybrid", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 @router.post("/v1/pdfimagetable", tags=["Hibrit OCR"], summary="Tablo yapısı korumalı OCR")
@@ -358,6 +368,7 @@ async def v1_pdfimagetable(
     file: UploadFile = File(..., description=_PDF_ONLY),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     Tablo + gömülü resim içeren PDF'ler. Tablo yapısı bozulmadan OCR.
@@ -366,7 +377,7 @@ async def v1_pdfimagetable(
     **Kullanım:** Findeks, kredi raporu — tablo hücrelerine OCR sonucu yazılır.
     **Kilitli endpoint.**
     """
-    return await _process_upload(file, "pdfimagetable", page_range=page_range, format=format)
+    return await _process_upload(file, "pdfimagetable", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -378,6 +389,7 @@ async def v1_icr(
     file: UploadFile = File(..., description=_HANDWRITING),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     El yazısı belgeler için ICR (Intelligent Character Recognition).
@@ -397,7 +409,7 @@ async def v1_icr(
 
     **Motor:** Tesseract LSTM (lang=tur+eng, 300 DPI). 4 farklı PSM dener, en iyisini seçer.
     """
-    return await _process_upload(file, "icr", page_range=page_range, format=format)
+    return await _process_upload(file, "icr", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 @router.post("/v1/icrpaddle", tags=["El Yazısı Tanıma (ICR)"], summary="PaddleOCR ICR")
@@ -405,6 +417,7 @@ async def v1_icrpaddle(
     file: UploadFile = File(..., description=_HANDWRITING),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     El yazısı belgeler için ICR — PaddleOCR PP-OCRv4 motoru.
@@ -413,7 +426,7 @@ async def v1_icrpaddle(
     **Preprocessing:** Bilateral filter + CLAHE + unsharp mask (hafif — PaddleOCR kendi pipeline'ı var).
     **Kullanım:** Docker/düşük bellek ortamlarında el yazısı tanıma.
     """
-    return await _process_upload(file, "icrpaddle", page_range=page_range, format=format)
+    return await _process_upload(file, "icrpaddle", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -425,6 +438,7 @@ async def v1_fatura(
     file: UploadFile = File(..., description=_PDF_OR_IMAGE),
     page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
     format: str = Query("json", description="Çıktı: json veya text"),
+    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
 ):
     """
     Fatura belgesinden akıllı metin çıkarımı.
@@ -437,7 +451,7 @@ async def v1_fatura(
     | PDF — dijital metin var | PyMuPDF / pdfplumber |
     | PDF — taranmış | RapidOCR |
     """
-    return await _process_upload(file, "fatura", page_range=page_range, format=format)
+    return await _process_upload(file, "fatura", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 # ═══════════════════════════════════════════════════════════

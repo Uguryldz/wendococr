@@ -13,6 +13,8 @@ her zaman TAM çözünürlüklü görüntü üzerinde yapılır — sadece açı
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 import cv2
 import numpy as np
 import pytesseract
@@ -23,6 +25,21 @@ from app.config import (
     AUTO_ROTATE_MIN_CONF,
     AUTO_ROTATE_MIN_SIDE,
 )
+
+# İstek-başına override: route'tan ?auto_rotate=true/false gelir. None = config varsayılanı.
+# ContextVar: local ThreadPool modunda iş başına izole; Redis worker'da process_document
+# başında set edilir (her iş kendi değerini görür).
+_rotate_override: ContextVar[bool | None] = ContextVar("auto_rotate_override", default=None)
+
+
+def set_auto_rotate(flag: bool | None) -> None:
+    """İstek-başına auto-rotate override'ını ayarlar (None = config varsayılanına dön)."""
+    _rotate_override.set(flag)
+
+
+def _rotate_enabled() -> bool:
+    ov = _rotate_override.get()
+    return AUTO_ROTATE if ov is None else ov
 
 # OSD 'rotate' = görüntüyü dik yapmak için saat yönünde döndürülecek derece.
 _ROTATE_CODE = {
@@ -45,7 +62,7 @@ def detect_rotation(img: np.ndarray) -> int:
     Sayfayı dik yapmak için gereken saat-yönü dönme açısı: 0, 90, 180 veya 270.
     OSD güveni eşiğin altındaysa 0 döner (güvenli varsayılan — döndürme).
     """
-    if not AUTO_ROTATE or img is None or img.size == 0:
+    if not _rotate_enabled() or img is None or img.size == 0:
         return 0
     h, w = img.shape[:2]
     # Sadece tam-sayfa ölçekli görüntü: küçük bölge/antet OCR'ında yön tespiti yapma.
