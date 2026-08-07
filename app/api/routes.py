@@ -48,7 +48,7 @@ def _validate_file(file: UploadFile, mode: str) -> None:
     if ct and expected_mime:
         if ct != expected_mime and ct not in (ALLOWED_IMAGE_TYPES | {ALLOWED_PDF_TYPE}):
             raise HTTPException(415, detail=f"Dosya tipi uyumsuz: uzantı {suffix}, Content-Type {ct}")
-    if mode in ("pdftext", "pdftexttable", "pdftxtimage", "pdfimagetable") and suffix != ".pdf":
+    if mode in ("pdftext", "pdftexttable", "pdfimagetable") and suffix != ".pdf":
         raise HTTPException(415, detail="Bu endpoint sadece PDF kabul eder.")
 
 
@@ -167,13 +167,6 @@ def _check_rapidocr() -> bool:
     except Exception:
         return False
 
-def _check_paddleocr() -> bool:
-    try:
-        from paddleocr import PaddleOCR  # noqa: F401
-        return True
-    except Exception:
-        return False
-
 def _check_upload_dir() -> bool:
     try:
         test_file = UPLOAD_DIR / ".health_check"
@@ -193,7 +186,6 @@ def health():
         "motorlar": {
             "tesseract_tur": _check_tesseract(),
             "rapidocr": _check_rapidocr(),
-            "paddleocr": _check_paddleocr(),
         },
         "sistem": {
             "upload_dir": _check_upload_dir(),
@@ -264,8 +256,8 @@ async def v1_pdftexttable(
 
 # ═══════════════════════════════════════════════════════════
 # 3. TARANMIŞ BELGE OCR
-#    Güncel: pdfimagev5 (RapidOCR, hızlı — varsayılan), pdfimagets (Tesseract yedek).
-#    Legacy: pdfimagepaddleocrlow (aşağıda, deprecated).
+#    Tek taranmış-OCR endpoint'i: pdfimagev5 (RapidOCR). Tesseract/Paddle varyantları
+#    kaldırıldı (aynı işi yapıyorlardı; auto zaten en iyi motoru seçiyor).
 # ═══════════════════════════════════════════════════════════
 
 @router.post("/v1/pdfimagev5", tags=["Taranmış Belge OCR"], summary="RapidOCR (hızlı)")
@@ -285,66 +277,11 @@ async def v1_pdfimagev5(
     return await _process_upload(file, "pdfimagev5", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
-@router.post("/v1/pdfimagets", tags=["Taranmış Belge OCR"], summary="Tesseract Türkçe")
-async def v1_pdfimagets(
-    file: UploadFile = File(..., description=_PDF_OR_IMAGE),
-    page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
-    format: str = Query("json", description="Çıktı: json veya text"),
-    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
-):
-    """
-    Tesseract LSTM ile Türkçe OCR.
-
-    **Motor:** Tesseract (lang=tur+eng, --oem 3).
-    **Doğruluk:** Türkçe'de en yüksek doğruluk. Birden fazla PSM dener, en iyisini seçer.
-    **Türkçe:** Diacritik post-processing + sharpen + CLAHE.
-    """
-    return await _process_upload(file, "pdfimagets", page_range=page_range, format=format, auto_rotate=auto_rotate)
-
-
-@router.post("/v1/pdfimagepaddleocrlow", tags=["Legacy (önerilmez)"],
-             summary="[LEGACY] PaddleOCR — pdfimagev5 kullanın", deprecated=True)
-async def v1_pdfimagepaddleocrlow(
-    file: UploadFile = File(..., description=_PDF_OR_IMAGE),
-    page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
-    format: str = Query("json", description="Çıktı: json veya text"),
-    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
-):
-    """
-    ⚠️ **LEGACY / önerilmez.** Bunun yerine **`/v1/pdfimagev5`** (veya `/v1/auto`) kullanın.
-
-    Aynı işi (taranmış belge OCR) yapar ama PaddleOCR CPU'da çok yavaştır (~90-110 sn/sayfa);
-    RapidOCR hem daha hızlı hem Türkçe'de daha doğru. Geriye uyum için bırakıldı.
-
-    **Kütüphane:** PaddleOCR (paddleocr + paddlepaddle) — CPU'da yavaş, ~2GB imaj yükü.
-    """
-    return await _process_upload(file, "pdfimagepaddleocrlow", page_range=page_range, format=format, auto_rotate=auto_rotate)
-
-
 # ═══════════════════════════════════════════════════════════
 # 4. HİBRİT OCR (dijital metin + görsel-içi metin)
-#    Güncel: imagetexthybrid (⭐ önerilen, RapidOCR+layout), pdfimagetable (tablo hücre yapısı).
-#    Legacy: pdftxtimage (aşağıda, deprecated — imagetexthybrid kullanın).
+#    imagetexthybrid (⭐ RapidOCR+layout) + pdfimagetable (tablo hücre yapısı — ayrı iş).
+#    pdftxtimage kaldırıldı (imagetexthybrid ile aynı işi yapıyordu).
 # ═══════════════════════════════════════════════════════════
-
-@router.post("/v1/pdftxtimage", tags=["Legacy (önerilmez)"],
-             summary="[LEGACY] Metin + gömülü resim — imagetexthybrid kullanın", deprecated=True)
-async def v1_pdftxtimage(
-    file: UploadFile = File(..., description=_PDF_ONLY),
-    page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
-    format: str = Query("json", description="Çıktı: json veya text"),
-    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
-):
-    """
-    ⚠️ **LEGACY / önerilmez.** Bunun yerine **`/v1/imagetexthybrid`** kullanın.
-
-    Aynı işi (dijital metin + gömülü resim OCR) yapar ama imagetexthybrid daha yeni: RapidOCR
-    (Tesseract yerine), layout korumalı birleştirme ve mükerrer satır elemesi ekler. Geriye
-    uyum için bırakıldı.
-
-    **Kütüphane:** PyMuPDF (native metin) + Tesseract Türkçe (gömülü resim OCR).
-    """
-    return await _process_upload(file, "pdftxtimage", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 @router.post("/v1/imagetexthybrid", tags=["Hibrit OCR"], summary="⭐ Dijital metin + görsel-içi metin (önerilen hibrit)")
@@ -393,7 +330,7 @@ async def v1_pdfimagetable(
 
 # ═══════════════════════════════════════════════════════════
 # 5. EL YAZISI TANIMA (ICR)
-#    Güncel: icr (Tesseract). Legacy: icrpaddle (aşağıda, deprecated).
+#    icr (Tesseract). icrpaddle kaldırıldı (aynı iş, Paddle — CPU'da yavaş).
 #    Not: CPU+Türkçe el yazısı için daha iyi açık kütüphane yok (TrOCR GPU ister,
 #    Türkçe el yazısı modeli yok). Bu yüzden Tesseract tabanlı kalıyor.
 # ═══════════════════════════════════════════════════════════
@@ -426,52 +363,9 @@ async def v1_icr(
     return await _process_upload(file, "icr", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
-@router.post("/v1/icrpaddle", tags=["Legacy (önerilmez)"],
-             summary="[LEGACY] PaddleOCR ICR — icr kullanın", deprecated=True)
-async def v1_icrpaddle(
-    file: UploadFile = File(..., description=_HANDWRITING),
-    page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
-    format: str = Query("json", description="Çıktı: json veya text"),
-    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
-):
-    """
-    ⚠️ **LEGACY / önerilmez.** Bunun yerine **`/v1/icr`** kullanın.
-
-    Aynı işi (el yazısı tanıma) yapar ama PaddleOCR CPU'da çok yavaştır (~85 sn/sayfa) ve
-    Türkçe el yazısında Tesseract'a belirgin üstünlüğü yoktur. Geriye uyum için bırakıldı.
-
-    **Kütüphane:** PaddleOCR (paddleocr + paddlepaddle) — CPU'da yavaş, ~2GB imaj yükü.
-    """
-    return await _process_upload(file, "icrpaddle", page_range=page_range, format=format, auto_rotate=auto_rotate)
-
-
 # ═══════════════════════════════════════════════════════════
-# 6. FATURA
+# (GİZLİ) FATURA — /v1/auto ile aynı; UI'dan çıkarıldı, route çalışmaya devam eder
 # ═══════════════════════════════════════════════════════════
-
-@router.post("/v1/fatura", tags=["Fatura"], summary="Fatura metin çıkarımı (PDF veya resim)")
-async def v1_fatura(
-    file: UploadFile = File(..., description=_PDF_OR_IMAGE),
-    page_range: str | None = Query(None, description="Sayfa aralığı: 1-5, 1,3,7"),
-    format: str = Query("json", description="Çıktı: json veya text"),
-    auto_rotate: bool = Query(True, description="Yatay/ters belgeyi otomatik düzelt (varsayılan açık, kapatmak için false)"),
-):
-    """
-    Fatura belgesinden akıllı metin çıkarımı.
-
-    **Not:** Şu an `/v1/auto` ile **aynı akıllı yönlendirmeyi** kullanır (ayrı fatura mantığı
-    yok). Fatura akışlarının ayrı bir isimle çağrılabilmesi için korunur; ileride fatura'ya
-    özel davranış gerekirse buradan ayrışabilir.
-
-    Dosya tipine göre en uygun motoru otomatik seçer:
-
-    | Dosya Tipi | Motor (kütüphane) |
-    |------------|-------|
-    | Resim (PNG, JPEG, …) | RapidOCR |
-    | PDF — dijital metin var | PyMuPDF / pdfplumber |
-    | PDF — taranmış | RapidOCR |
-    """
-    return await _process_upload(file, "fatura", page_range=page_range, format=format, auto_rotate=auto_rotate)
 
 
 # ═══════════════════════════════════════════════════════════

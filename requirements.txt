@@ -17,7 +17,3 @@ redis>=8.0.1
 # Findeks Export (findeksexport motoru)
 pandas>=3.0.3
 openpyxl>=3.1.5
-
-# PaddleOCR (pdfimagepaddleocrlow motoru)
-paddleocr>=3.7.0
-paddlepaddle>=3.3.1

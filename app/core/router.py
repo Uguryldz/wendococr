@@ -3,20 +3,16 @@ Akıllı Karar Mekanizması (Brain).
 Gelen belgeye göre sayfa bazlı engine seçer. Ağır kütüphaneler ilk kullanımda yüklenir (hızlı startup).
 """
 from pathlib import Path
-import os
 from typing import Any
 
 from app.config import (
     ALLOWED_IMAGE_TYPES,
     ALLOWED_PDF_TYPE,
     AUTO_FORCE_RAPID_OCR,
-    AUTO_FORCE_PADDLEOCR_LOW,
     AUTO_SMART,
     EXTRACT_MODES,
     ICR_DPI,
     OCR_DPI_RAPID,
-    OCR_DPI_TESSERACT,
-    OCR_DPI_PADDLEOCR_LOW,
 )
 
 # Minimum metin uzunluğu: sayfa "searchable" kabul edilir
@@ -44,8 +40,6 @@ def _analyze_pdf_page(fitz_page) -> str:
                     for r in fitz_page.get_image_rects(img[0]):
                         if abs(r.width * r.height) >= page_area * SCANNED_IMAGE_AREA_RATIO:
                             # Buyuk resim var → taranmis sayfa → OCR
-                            if AUTO_FORCE_PADDLEOCR_LOW:
-                                return "pdfimagepaddleocrlow"
                             return "pdfimagev5"
         except Exception:
             pass
@@ -60,15 +54,11 @@ def _analyze_pdf_page(fitz_page) -> str:
             from app.engines.hybrid_imagetext import _text_layer_untrustworthy
             native = [{"text": text}]
             if _text_layer_untrustworthy(fitz_page, native):
-                if AUTO_FORCE_PADDLEOCR_LOW:
-                    return "pdfimagepaddleocrlow"
                 return "pdfimagev5"
         except Exception:
             pass
         # Metin var — tablo kontrolü yap (pdfplumber lazy)
         return "pdftext_or_table"  # tablo kontrolü ayrıca yapılacak
-    if AUTO_FORCE_PADDLEOCR_LOW:
-        return "pdfimagepaddleocrlow"
     return "pdfimagev5"
 
 
@@ -112,9 +102,6 @@ def process_document(
 
     if mode not in EXTRACT_MODES:
         mode = "auto"
-    is_fatura = (mode == "fatura")
-    if is_fatura:
-        mode = "auto"
 
     path = Path(file_path)
     if not path.exists():
@@ -131,14 +118,6 @@ def process_document(
         return raw, "pdftexttable"
     if mode == "pdfimagev5":
         return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers)
-    if mode == "pdfimagets":
-        return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagets", page_numbers=page_numbers)
-    if mode == "pdfimagepaddleocrlow":
-        return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagepaddleocrlow", page_numbers=page_numbers)
-    if mode == "pdftxtimage":
-        from app.engines.ocr_txtimage import extract as ocr_txtimage_extract
-        raw = ocr_txtimage_extract(path, page_numbers=page_numbers)
-        return raw, "pdftxtimage"
     if mode == "imagetexthybrid":
         from app.engines.hybrid_imagetext import extract as hybrid_extract
         raw = hybrid_extract(path, page_numbers=page_numbers)
@@ -149,10 +128,8 @@ def process_document(
         return raw, "pdfimagetable"
     if mode == "icr":
         return _run_ocr_pdf_or_image(path, content_type, engine="icr", page_numbers=page_numbers)
-    if mode == "icrpaddle":
-        return _run_ocr_pdf_or_image(path, content_type, engine="icrpaddle", page_numbers=page_numbers)
 
-    # --- FATURA / AUTO ---
+    # --- AUTO (akıllı yönlendirme) ---
     if content_type and content_type.lower() in ALLOWED_IMAGE_TYPES:
         return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers or [0])
 
@@ -165,9 +142,9 @@ def process_document(
             return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers or [0])
 
     # AUTO_FORCE_RAPID_OCR aktifse PDF tarafında da direkt RapidOCR kullan.
-    # Fatura modunda ve AUTO_SMART açıkken bypass edilir: dijital PDF'in metin
-    # katmanı OCR'a zorlanmadan okunur (fatura gibi akıllı davranış).
-    smart = is_fatura or AUTO_SMART
+    # AUTO_SMART açıkken bypass edilir: dijital PDF'in metin katmanı OCR'a
+    # zorlanmadan okunur (akıllı davranış).
+    smart = AUTO_SMART
     if AUTO_FORCE_RAPID_OCR and not smart:
         return _run_ocr_pdf_or_image(path, content_type, engine="pdfimagev5", page_numbers=page_numbers)
 
@@ -209,7 +186,7 @@ def process_document(
     dpi = OCR_DPI_RAPID
     mat = fitz.Matrix(dpi / 72, dpi / 72)
     for i in indices:
-        if page_engines[i] in ("pdfimagev5", "pdfimagepaddleocrlow"):
+        if page_engines[i] == "pdfimagev5":
             try:
                 pix = doc[i].get_pixmap(matrix=mat, alpha=False)
                 ocr_images[i] = pix.tobytes("png")
@@ -267,14 +244,7 @@ def _run_ocr_pdf_or_image(
         indices = page_numbers if page_numbers is not None else list(range(n_pages))
         indices = [i for i in indices if 0 <= i < n_pages]
 
-        if engine == "pdfimagev5":
-            dpi = OCR_DPI_RAPID
-        elif engine == "pdfimagepaddleocrlow":
-            dpi = int(os.environ.get("OCR_DPI_PADDLEOCR_LOW", str(OCR_DPI_PADDLEOCR_LOW)))
-        elif engine in ("icr", "icrpaddle"):
-            dpi = ICR_DPI
-        else:
-            dpi = OCR_DPI_TESSERACT
+        dpi = ICR_DPI if engine == "icr" else OCR_DPI_RAPID
 
         mat = fitz.Matrix(dpi / 72, dpi / 72)
         all_pages = []
@@ -286,21 +256,12 @@ def _run_ocr_pdf_or_image(
                 png_bytes = None
 
             if png_bytes:
-                if engine == "pdfimagev5":
-                    from app.engines.ocr_rapid import extract as ocr_rapid_extract
-                    part = ocr_rapid_extract(path, page_numbers=[i], image_bytes=png_bytes)
-                elif engine == "pdfimagepaddleocrlow":
-                    from app.engines.ocr_paddleocr_low import extract as ocr_paddleocr_low_extract
-                    part = ocr_paddleocr_low_extract(path, page_numbers=[i], image_bytes=png_bytes)
-                elif engine == "icr":
+                if engine == "icr":
                     from app.engines.icr_tesseract import extract as icr_tesseract_extract
                     part = icr_tesseract_extract(path, page_numbers=[i], image_bytes=png_bytes)
-                elif engine == "icrpaddle":
-                    from app.engines.icr_paddleocr import extract as icr_paddleocr_extract
-                    part = icr_paddleocr_extract(path, page_numbers=[i], image_bytes=png_bytes)
-                else:
-                    from app.engines.ocr_tesseract import extract as ocr_tesseract_extract
-                    part = ocr_tesseract_extract(path, page_numbers=[i], image_bytes=png_bytes)
+                else:  # pdfimagev5
+                    from app.engines.ocr_rapid import extract as ocr_rapid_extract
+                    part = ocr_rapid_extract(path, page_numbers=[i], image_bytes=png_bytes)
             else:
                 part = [dict(empty_page)]
                 part[0]["page_number"] = i + 1
@@ -310,19 +271,10 @@ def _run_ocr_pdf_or_image(
         return all_pages, engine
 
     # Tek sayfa resim
-    if engine == "pdfimagev5":
-        from app.engines.ocr_rapid import extract as ocr_rapid_extract
-        raw = ocr_rapid_extract(path, page_numbers=[0])
-    elif engine == "pdfimagepaddleocrlow":
-        from app.engines.ocr_paddleocr_low import extract as ocr_paddleocr_low_extract
-        raw = ocr_paddleocr_low_extract(path, page_numbers=[0])
-    elif engine == "icr":
+    if engine == "icr":
         from app.engines.icr_tesseract import extract as icr_tesseract_extract
         raw = icr_tesseract_extract(path, page_numbers=[0])
-    elif engine == "icrpaddle":
-        from app.engines.icr_paddleocr import extract as icr_paddleocr_extract
-        raw = icr_paddleocr_extract(path, page_numbers=[0])
-    else:
-        from app.engines.ocr_tesseract import extract as ocr_tesseract_extract
-        raw = ocr_tesseract_extract(path, page_numbers=[0])
+    else:  # pdfimagev5
+        from app.engines.ocr_rapid import extract as ocr_rapid_extract
+        raw = ocr_rapid_extract(path, page_numbers=[0])
     return raw, engine

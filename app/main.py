@@ -31,11 +31,11 @@ OPENAPI_TAGS = [
     },
     {
         "name": "Taranmış Belge OCR",
-        "description": "Taranmış PDF veya resim dosyaları. 3 farklı OCR motoru: RapidOCR (hızlı), Tesseract (Türkçe optimize), PaddleOCR (düşük bellek). Tüm motorlarda Türkçe diacritik post-processing aktif.",
+        "description": "Taranmış PDF veya resim dosyaları. RapidOCR (ONNX, CPU optimize, hızlı) + otomatik yön düzeltme (auto-rotate). Türkçe diacritik post-processing aktif.",
     },
     {
         "name": "Hibrit OCR",
-        "description": "Hem metin katmanı hem gömülü resim içeren belgeler (Findeks raporu, kredi raporu vb.). Native metin + gömülü resim OCR birleştirilir. Kilitli endpoint'ler.",
+        "description": "Hem metin katmanı hem gömülü resim içeren belgeler. imagetexthybrid: dijital metin + görsel-içi metin, layout korumalı (önerilen). pdfimagetable: taranmış tablodan hücre yapısı çıkarımı.",
     },
     {
         "name": "El Yazısı Tanıma (ICR)",
@@ -59,12 +59,11 @@ app = FastAPI(
         "### Yetenekler\n"
         "| Kategori | Açıklama | Endpoint Sayısı |\n"
         "|----------|----------|-----------------|\n"
-        "| **Otomatik** | Akıllı motor seçimi | 1 |\n"
-        "| **Dijital PDF** | Native metin/tablo çıkarımı | 2 |\n"
-        "| **Taranmış Belge OCR** | RapidOCR, Tesseract, PaddleOCR | 3 |\n"
-        "| **Hibrit OCR** | Metin + gömülü resim | 2 |\n"
-        "| **El Yazısı (ICR)** | Tesseract ICR, PaddleOCR ICR | 2 |\n"
-        "| **Fatura** | Akıllı motor seçimi (PDF/resim) | 1 |\n"
+        "| **Otomatik** | Akıllı motor seçimi (auto-rotate dahil) | 1 |\n"
+        "| **Dijital PDF** | Native metin / tablo çıkarımı | 2 |\n"
+        "| **Taranmış Belge OCR** | RapidOCR (hızlı) | 1 |\n"
+        "| **Hibrit OCR** | Dijital metin + görsel-içi metin, tablo hücre | 2 |\n"
+        "| **El Yazısı (ICR)** | Tesseract ICR | 1 |\n"
         "| **Findeks Export** | Yapısal veri çıkarımı (JSON/XLSX) | 1 |\n\n"
         "### Desteklenen Formatlar\n"
         "**PDF** | **Resim:** JPEG, PNG, BMP, WEBP, TIFF, GIF, PBM, PGM, PPM\n\n"
@@ -152,10 +151,7 @@ def root():
         "workers": pool.status(),
         "endpoints": {
             "otomatik": {
-                "/v1/auto": "Akıllı motor seçimi",
-            },
-            "fatura": {
-                "/v1/fatura": "Fatura metin çıkarımı (PDF/resim)",
+                "/v1/auto": "Akıllı motor seçimi (auto-rotate dahil)",
             },
             "dijital_pdf": {
                 "/v1/pdftext": "PDF metin çıkarımı",
@@ -163,16 +159,13 @@ def root():
             },
             "taranmis_belge_ocr": {
                 "/v1/pdfimagev5": "RapidOCR (hızlı)",
-                "/v1/pdfimagets": "Tesseract Türkçe",
-                "/v1/pdfimagepaddleocrlow": "PaddleOCR (düşük bellek)",
             },
             "hibrit_ocr": {
-                "/v1/pdftxtimage": "Metin + gömülü resim OCR",
-                "/v1/pdfimagetable": "Tablo + gömülü resim OCR",
+                "/v1/imagetexthybrid": "Dijital metin + görsel-içi metin (layout korumalı)",
+                "/v1/pdfimagetable": "Tablo hücre yapısı + gömülü resim OCR",
             },
             "el_yazisi_icr": {
                 "/v1/icr": "Tesseract ICR",
-                "/v1/icrpaddle": "PaddleOCR ICR",
             },
             "findeks_export": {
                 "/v1/findeksexport": "Findeks rapor çıkarımı (JSON/XLSX)",

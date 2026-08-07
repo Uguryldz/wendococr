@@ -49,12 +49,6 @@ services:
       REDIS_URL: redis://redis:6379/1
       OCR_QUEUE_MAX_SIZE: "100"
       OCR_QUEUE_TIMEOUT: "300"
-      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
-      FLAGS_use_mkldnn: "0"
-      OCR_DPI_PADDLEOCR_LOW: "150"
-      PADDLEOCR_LOW_MAX_SIDE: "1200"
-      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
-      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
     volumes:
       - ocr_uploads:/tmp/wendococr
     security_opt:
@@ -80,12 +74,6 @@ services:
     environment:
       UPLOAD_DIR: /tmp/wendococr
       REDIS_URL: redis://redis:6379/1
-      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
-      FLAGS_use_mkldnn: "0"
-      OCR_DPI_PADDLEOCR_LOW: "150"
-      PADDLEOCR_LOW_MAX_SIDE: "1200"
-      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
-      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
     volumes:
       - ocr_uploads:/tmp/wendococr
     security_opt:
@@ -111,12 +99,6 @@ services:
     environment:
       UPLOAD_DIR: /tmp/wendococr
       REDIS_URL: redis://redis:6379/1
-      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
-      FLAGS_use_mkldnn: "0"
-      OCR_DPI_PADDLEOCR_LOW: "150"
-      PADDLEOCR_LOW_MAX_SIDE: "1200"
-      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
-      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
     volumes:
       - ocr_uploads:/tmp/wendococr
     security_opt:
@@ -142,12 +124,6 @@ services:
     environment:
       UPLOAD_DIR: /tmp/wendococr
       REDIS_URL: redis://redis:6379/1
-      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
-      FLAGS_use_mkldnn: "0"
-      OCR_DPI_PADDLEOCR_LOW: "150"
-      PADDLEOCR_LOW_MAX_SIDE: "1200"
-      PADDLEOCR_LOW_TEXT_DET_LIMIT: "1200"
-      PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE: "min"
     volumes:
       - ocr_uploads:/tmp/wendococr
     security_opt:

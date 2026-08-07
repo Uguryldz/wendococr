@@ -59,7 +59,7 @@ class PageResult(BaseModel):
 class ExtractResponse(BaseModel):
     """POST /v1/* başarılı yanıtı."""
     filename: str
-    method_used: str = Field(description="Kullanılan motor: auto, pdftext, pdftexttable, pdfimagev5, pdfimagets, pdftxtimage, pdfimagetable")
+    method_used: str = Field(description="Kullanılan motor: pdftext, pdftexttable, pdfimagev5, imagetexthybrid, pdfimagetable, icr")
     processing_time_sec: float
     pages: list[PageResult]
 

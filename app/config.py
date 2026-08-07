@@ -35,7 +35,6 @@ MAX_PAGES = 500
 # PDF -> görüntü DPI: yükseldikçe kalite artar, hız düşer.
 # Türkçe diacritik koruma için minimum 200 DPI önerilir (ö/ü/ç/ş/ğ/İ noktaları).
 OCR_DPI_RAPID = 200
-OCR_DPI_TESSERACT = 250
 AUTO_FORCE_RAPID_OCR = True
 # Auto modu fatura gibi "akıllı" davransın mı: True ise dijital PDF'lerde
 # OCR'a zorlamadan metin katmanını okur (AUTO_FORCE_RAPID_OCR bypass edilir).
@@ -112,10 +111,8 @@ ICR_USER_DEFINED_DPI = "300"
 
 # Desteklenen mode değerleri
 EXTRACT_MODES = {
-    "auto", "fatura", "pdftext", "pdftexttable", "pdfimagev5", "pdfimagets",
-    "pdftxtimage", "pdfimagetable", "pdfimagepaddleocrlow",
-    "imagetexthybrid",
-    "icr", "icrpaddle",
+    "auto", "pdftext", "pdftexttable", "pdfimagev5",
+    "pdfimagetable", "imagetexthybrid", "icr",
 }
 
 # ── AUTO-ROTATE: yatay/ters gelmiş taranmış belgeleri OCR öncesi dik konuma getir ──
@@ -167,17 +164,3 @@ HYBRID_RESCAN_SUSPECT_RATIO = float(os.environ.get("HYBRID_RESCAN_SUSPECT_RATIO"
 HYBRID_RESCAN_MIN_TOKENS = int(os.environ.get("HYBRID_RESCAN_MIN_TOKENS", "40"))  # altı = oran anlamsız
 # Bu uzunluğun altındaki OCR satırı yalnız birebir eşleşirse elenir (kısa antet koruması)
 HYBRID_DEDUP_MIN_LEN = int(os.environ.get("HYBRID_DEDUP_MIN_LEN", "12"))
-
-# PaddleOCR (low bellek) ayarları
-# Not: PaddleOCR bağımlılıkları Docker imajına eklenecek (requirements.txt).
-# Bu motor, büyük görsellerde RAM patlamasını önlemek için ağır doc pipeline kapalı ve input boyutu sınırlandırılır.
-AUTO_FORCE_PADDLEOCR_LOW = False
-
-OCR_DPI_PADDLEOCR_LOW = 200
-PADDLEOCR_LOW_MAX_SIDE = 1200
-PADDLEOCR_LOW_TEXT_DET_LIMIT = 1200
-PADDLEOCR_LOW_TEXT_DET_LIMIT_TYPE = "min"
-PADDLEOCR_LOW_TEXT_DET_THRESH = 0.3
-PADDLEOCR_LOW_TEXT_DET_BOX_THRESH = 0.6
-PADDLEOCR_LOW_TEXT_DET_UNCLIP_RATIO = 1.5
-PADDLEOCR_LOW_TEXT_REC_SCORE_THRESH = 0.1

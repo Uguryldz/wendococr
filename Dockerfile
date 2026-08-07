@@ -12,7 +12,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root kullanici (Scout: container root calismamali).
-# HOME ayarlanir cunku PaddleOCR/RapidOCR modelleri ~/.paddlex, ~/.cache altina iner.
+# HOME ayarlanir cunku RapidOCR modelleri ~/.cache altina iner.
 RUN useradd --create-home --uid 10001 appuser
 ENV HOME=/home/appuser
 
@@ -24,9 +24,6 @@ RUN pip install --no-cache-dir --upgrade pip
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-ARG PRELOAD_PADDLE_MODELS=1
-ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
-ENV FLAGS_use_mkldnn=0
 ENV UPLOAD_DIR=/tmp/wendococr
 ENV PYTHONUNBUFFERED=1
 
@@ -43,12 +40,6 @@ RUN chown -R appuser:appuser /app /home/appuser
 
 # Bundan sonraki adimlar ve runtime non-root.
 USER appuser
-
-# PaddleOCR model preload — appuser olarak, modeller /home/appuser altina iner
-# (runtime'da ayni user okur, offline calisir).
-RUN if [ "$PRELOAD_PADDLE_MODELS" = "1" ]; then \
-      python -c "from paddleocr import PaddleOCR; PaddleOCR(use_doc_orientation_classify=False, use_doc_unwarping=False, use_textline_orientation=False, enable_mkldnn=False, device='cpu', text_det_limit_side_len=960, text_det_limit_type='min'); print('PaddleOCR model preload tamamlandi.')" \
-    ; fi
 
 EXPOSE 8099
 
