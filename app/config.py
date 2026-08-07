@@ -121,7 +121,10 @@ EXTRACT_MODES = {
 # bu 90°/180° tam sayfa dönüşünü düzeltir. Tüm raster OCR motorlarında geçerli.
 AUTO_ROTATE = os.environ.get("AUTO_ROTATE", "1") == "1"
 AUTO_ROTATE_MIN_CONF = float(os.environ.get("AUTO_ROTATE_MIN_CONF", "2.0"))  # OSD güven alt sınırı
-AUTO_ROTATE_MAX_SIDE = int(os.environ.get("AUTO_ROTATE_MAX_SIDE", "1600"))   # OSD için küçültme
+# OSD için küçültme sınırı. ÇOK küçültmek (1600) büyük fişlerde metni bozup OSD güvenini
+# çökertiyordu (4032px fiş: 1600'e küçültünce conf 0.12 ve yanlış yön; 2600'de conf ~7 doğru).
+# Süre farkı küçük (0.7s -> 1.1s), doğruluk kazancı büyük.
+AUTO_ROTATE_MAX_SIDE = int(os.environ.get("AUTO_ROTATE_MAX_SIDE", "2600"))
 # Sadece tam-sayfa ölçekli görüntüde çalış: hybrid'in ince antet/bölge OCR'ında (küçük
 # görüntü) yön tespiti hem gereksiz hem riskli — kısa kenar bunun altındaysa dokunma.
 AUTO_ROTATE_MIN_SIDE = int(os.environ.get("AUTO_ROTATE_MIN_SIDE", "1000"))
