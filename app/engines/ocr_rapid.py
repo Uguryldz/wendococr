@@ -23,9 +23,8 @@ from app.config import (
     RAPIDOCR_MIN_TOKEN_LEN,
     RAPIDOCR_NUM_THREADS,
     AUTO_ROTATE_MIN_CONF,
-    AUTO_ROTATE_VERIFY,
-    AUTO_ROTATE_VERIFY_MARGIN,
     AUTO_ROTATE_VOTE,
+    AUTO_ROTATE_VOTE_MARGIN,
     RAPIDOCR_THRESHOLD,
     RAPIDOCR_TEXT_SCORE,
 )
@@ -135,22 +134,31 @@ def _score(result) -> float:
 
 
 def _four_way_vote(engine, img, apply_rotation):
-    """0/90/180/270'i OCR'layıp en çok gerçek kelime üreteni seç (OSD çökünce fallback).
-    0°'ye MARJIN kadar öncelik verilir -> eşit/belirsizde döndürme yok (güvenli)."""
-    best = None  # (score, img, result, w, h)
-    for ang in (0, 90, 180, 270):
-        cand = img if ang == 0 else apply_rotation(img, ang)
+    """
+    0/90/180/270'i OCR'layıp en okunaklısını seç. 0° referans: döndürülmüş bir yön
+    ancak 0°'yi BÜYÜK MARJLA (AUTO_ROTATE_VOTE_MARGIN) aşarsa seçilir. Neden büyük marj:
+    gerçekten dönük fişte doğru yön 2-4 kat çok kelime verir; DİK belge (banka tablosu,
+    liste) yan okununca kelime sadece ~%5-10 şişer -> küçük marj dik fotoyu yanlış
+    döndürürdü. Büyük marj ikisini ayırır.
+    """
+    r0, w0, h0 = _enhance_and_ocr(engine, img)
+    base = _score(r0)
+    best_ang, best = 0, (base, img, r0, w0, h0)
+    threshold = base * (1.0 + AUTO_ROTATE_VOTE_MARGIN)
+    for ang in (90, 180, 270):
+        cand = apply_rotation(img, ang)
         r, w, h = _enhance_and_ocr(engine, cand)
-        s = _score(r) * (1.0 + AUTO_ROTATE_VERIFY_MARGIN) if ang == 0 else _score(r)
-        if best is None or s > best[0]:
-            best = (s, cand, r, w, h)
+        s = _score(r)
+        # Sadece 0°'yi belirgin aşan VE mevcut en iyiyi geçen yön seçilir.
+        if s > threshold and s > best[0]:
+            best_ang, best = ang, (s, cand, r, w, h)
     return best[1], best[2], best[3], best[4]
 
 
 def _oriented_ocr(engine, img: np.ndarray, auto_rotate: bool):
     """
     Yön kararı + OCR. Döner: (kullanılan_img, result, w, h).
-    Düşük güvende OCR-skoru ile doğrulama yapar (bkz. config AUTO_ROTATE_VERIFY).
+    Düşük güven/OSD çökünce 4-yön OCR oylaması yapar (bkz. AUTO_ROTATE_VOTE).
     OSD çökerse 4-yön OCR oylamasına düşer (AUTO_ROTATE_VOTE).
     """
     if not auto_rotate:
@@ -163,34 +171,21 @@ def _oriented_ocr(engine, img: np.ndarray, auto_rotate: bool):
         return img, r, w, h
 
     angle, conf = detect_rotation_candidate(img)
-    if angle == OSD_UNKNOWN:
-        # OSD karar veremedi -> 4-yön oylama (açıksa); değilse dokunma.
-        if AUTO_ROTATE_VOTE:
-            return _four_way_vote(engine, img, apply_rotation)
-        r, w, h = _enhance_and_ocr(engine, img)
-        return img, r, w, h
-    if angle == 0:
-        r, w, h = _enhance_and_ocr(engine, img)
-        return img, r, w, h
-    if conf >= AUTO_ROTATE_MIN_CONF:
-        # OSD emin: doğrudan döndür, tek geçiş
-        rimg = apply_rotation(img, angle)
+
+    # YÜKSEK GÜVEN: OSD'ye doğrudan güven, tek geçiş (temiz taranmış belgeler burada).
+    if angle != OSD_UNKNOWN and conf >= AUTO_ROTATE_MIN_CONF:
+        rimg = img if angle == 0 else apply_rotation(img, angle)
         r, w, h = _enhance_and_ocr(engine, rimg)
         return rimg, r, w, h
-    if not AUTO_ROTATE_VERIFY:
-        r, w, h = _enhance_and_ocr(engine, img)
-        return img, r, w, h
-    # Düşük güven + sıfırdan farklı açı: OSD bir yön ÖNERDİ (bağımsız kanıt). 0° ve önerilen
-    # açıyı OCR'layıp karşılaştır; önerilen açı 0°'den DAHA ÇOK gerçek kelime üretirse ona dön
-    # (marj YOK — iki bağımsız sinyal (OSD + kelime) aynı yönü gösteriyor). Aksi halde 0°'de kal.
-    # Not: prj18744'te kelime yakın (145 vs 150) ama 270° layout'u çok daha doğru okuyor; marj
-    # bunu bloklıyordu. OSD zaten yönü doğruladığı için burada 0°'ye ekstra öncelik verilmez.
-    r0, w0, h0 = _enhance_and_ocr(engine, img)
-    rimg = apply_rotation(img, angle)
-    rr, wr, hr = _enhance_and_ocr(engine, rimg)
-    if _score(rr) > _score(r0):
-        return rimg, rr, wr, hr
-    return img, r0, w0, h0
+
+    # DÜŞÜK GÜVEN / OSD ÇÖKTÜ / OSD "dik ama emin değil": OSD'ye güvenilmez. Fiş
+    # fotoğraflarında OSD sık sık YANLIŞ cevap veriyor (0 derken 90°, 270 derken 90°).
+    # Bu yüzden sadece OSD-açısına bakmak yetmez; 4 yönü de OCR'layıp en çok gerçek
+    # kelime üreteni seç (0°'ye MARJIN kadar öncelik -> dik fotoğraf bozulmaz).
+    if AUTO_ROTATE_VOTE:
+        return _four_way_vote(engine, img, apply_rotation)
+    r, w, h = _enhance_and_ocr(engine, img)
+    return img, r, w, h
 
 
 def _run_rapidocr(

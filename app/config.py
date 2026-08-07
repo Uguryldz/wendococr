@@ -143,6 +143,10 @@ AUTO_ROTATE_VERIFY_MARGIN = float(os.environ.get("AUTO_ROTATE_VERIFY_MARGIN", "0
 # bulamayabiliyor (ör. 1080x506 fiş). Bu durumda 0/90/180/270 dördü de OCR'lanır, en çok
 # gerçek kelime üreten seçilir (0°'ye küçük öncelik). 4 OCR maliyeti SADECE OSD çökünce.
 AUTO_ROTATE_VOTE = os.environ.get("AUTO_ROTATE_VOTE", "1") == "1"
+# 4-yön oylamada döndürülmüş yön, 0°'yi bu ORANDA aşmalı (yoksa 0°'de kal). BÜYÜK olması
+# şart: gerçekten dönük fişte doğru yön 2-4 kat çok kelime verir; DİK belge (tablo/liste)
+# yan okununca kelime sadece ~%5-10 şişer. %40 eşiği ikisini ayırır -> dik foto bozulmaz.
+AUTO_ROTATE_VOTE_MARGIN = float(os.environ.get("AUTO_ROTATE_VOTE_MARGIN", "0.40"))
 
 # ONNX Runtime thread sayısı. 0 = konteyner CPU kotasından otomatik (önerilen).
 # Host çekirdek sayısı kadar thread açmak cgroup limitli konteynerde ciddi yavaşlatır.
