@@ -128,6 +128,17 @@ AUTO_ROTATE_MAX_SIDE = int(os.environ.get("AUTO_ROTATE_MAX_SIDE", "1600"))   # O
 # Sadece tam-sayfa ölçekli görüntüde çalış: hybrid'in ince antet/bölge OCR'ında (küçük
 # görüntü) yön tespiti hem gereksiz hem riskli — kısa kenar bunun altındaysa dokunma.
 AUTO_ROTATE_MIN_SIDE = int(os.environ.get("AUTO_ROTATE_MIN_SIDE", "1000"))
+# DÜŞÜK GÜVEN DOĞRULAMA (fiş/fatura fotoğrafları): OSD yönü düşük güvende bile genelde
+# doğru, ama körlemesine uygulamak dik belgeyi bozabilir. OSD sıfırdan farklı açı önerir
+# ama güveni MIN_CONF altındaysa: sayfa hem 0° hem önerilen açıda OCR'lanır, RapidOCR güven
+# skoru toplamı bu MARJIN kadar yüksek olan açı seçilir. Sadece RapidOCR (auto/fatura/
+# pdfimagev5) yolunda; fişlerin geçtiği yol orası. Emin/r0 durumunda tek geçiş (hız aynı).
+AUTO_ROTATE_VERIFY = os.environ.get("AUTO_ROTATE_VERIFY", "1") == "1"
+# Doğrulama OCR ile korunduğu için burada boyut eşiği DÜŞÜK (küçük fiş fotoğrafları geçsin).
+AUTO_ROTATE_VERIFY_MIN_SIDE = int(os.environ.get("AUTO_ROTATE_VERIFY_MIN_SIDE", "400"))
+# OSD yönüne GÜVEN; sadece 0° skoru önerilen açıyı bu marj kadar AŞARSA 0°'de kal (override).
+# OSD yönü fişlerde bile doğru çıkıyor; ters mantık (dönmüş kazanmalı) ince farklarda kaçırıyordu.
+AUTO_ROTATE_VERIFY_MARGIN = float(os.environ.get("AUTO_ROTATE_VERIFY_MARGIN", "0.04"))  # %4
 
 # ONNX Runtime thread sayısı. 0 = konteyner CPU kotasından otomatik (önerilen).
 # Host çekirdek sayısı kadar thread açmak cgroup limitli konteynerde ciddi yavaşlatır.

@@ -24,6 +24,7 @@ from app.config import (
     AUTO_ROTATE_MAX_SIDE,
     AUTO_ROTATE_MIN_CONF,
     AUTO_ROTATE_MIN_SIDE,
+    AUTO_ROTATE_VERIFY_MIN_SIDE,
 )
 
 # İstek-başına override: route'tan ?auto_rotate=true/false gelir. None = config varsayılanı.
@@ -85,6 +86,32 @@ def detect_rotation(img: np.ndarray) -> int:
     if rotate == 0 or conf < AUTO_ROTATE_MIN_CONF:
         return 0
     return rotate if rotate in _ROTATE_CODE else 0
+
+
+def detect_rotation_candidate(img: np.ndarray) -> tuple[int, float]:
+    """
+    OSD ham adayı: (açı, güven). Güven eşiği UYGULANMAZ — çağıran karar verir
+    (düşük güvende OCR-skoru ile doğrulama yapmak için). Boyut eşiği yine geçerli.
+    Açı 0 veya güven okunamazsa (0, 0.0) döner.
+    """
+    if not _rotate_enabled() or img is None or img.size == 0:
+        return 0, 0.0
+    h, w = img.shape[:2]
+    # Doğrulama OCR ile korunduğu için düşük eşik (küçük fiş fotoğrafları da geçer).
+    if min(h, w) < AUTO_ROTATE_VERIFY_MIN_SIDE:
+        return 0, 0.0
+    gray = _to_gray(img)
+    longest = max(h, w)
+    if longest > AUTO_ROTATE_MAX_SIDE:
+        s = AUTO_ROTATE_MAX_SIDE / longest
+        gray = cv2.resize(gray, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
+    try:
+        osd = pytesseract.image_to_osd(gray, output_type=pytesseract.Output.DICT)
+        rotate = int(osd.get("rotate", 0)) % 360
+        conf = float(osd.get("orientation_conf", 0) or 0)
+    except (Exception, TypeError, ValueError):
+        return 0, 0.0
+    return (rotate if rotate in _ROTATE_CODE else 0), conf
 
 
 def apply_rotation(img: np.ndarray, angle: int) -> np.ndarray:

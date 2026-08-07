@@ -22,6 +22,9 @@ from app.config import (
     RAPIDOCR_MIN_CONFIDENCE,
     RAPIDOCR_MIN_TOKEN_LEN,
     RAPIDOCR_NUM_THREADS,
+    AUTO_ROTATE_MIN_CONF,
+    AUTO_ROTATE_VERIFY,
+    AUTO_ROTATE_VERIFY_MARGIN,
     RAPIDOCR_THRESHOLD,
     RAPIDOCR_TEXT_SCORE,
 )
@@ -96,6 +99,78 @@ def _clean_text(text: str) -> str:
     text = _WHITESPACE_RE.sub(" ", (text or "").strip())
     return text
 
+def _enhance_and_ocr(engine, img: np.ndarray):
+    """CLAHE (Türkçe diacritik koruma) + RapidOCR. Döner: (result, w, h)."""
+    h, w = img.shape[:2]
+    if RAPIDOCR_ENHANCE and max(h, w) < 2000:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+        try:
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            gray = clahe.apply(gray)
+        except Exception:
+            pass
+        img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    elif len(img.shape) == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    result = engine(img, text_score=RAPIDOCR_TEXT_SCORE)
+    return result, w, h
+
+
+_QUALWORD_RE = re.compile(r"[A-Za-zÇĞİÖŞÜçğıöşü]{3,}")
+
+
+def _score(result) -> float:
+    """
+    Yön doğrulama metriği: 3+ harfli GERÇEK KELİME sayısı. Skor toplamından iyi ayırır —
+    yanlış yönde OCR kısa/karışık token üretir; doğru yönde okunaklı kelimeler çıkar
+    (ölçüm: doğru dönüş +85 kelime, yanlış dönüş -7 kelime; skor toplamı bunu kaçırıyordu).
+    """
+    try:
+        if not result or not result.txts:
+            return 0.0
+        return float(sum(len(_QUALWORD_RE.findall(t or "")) for t in result.txts))
+    except Exception:
+        return 0.0
+
+
+def _oriented_ocr(engine, img: np.ndarray, auto_rotate: bool):
+    """
+    Yön kararı + OCR. Döner: (kullanılan_img, result, w, h).
+    Düşük güvende OCR-skoru ile doğrulama yapar (bkz. config AUTO_ROTATE_VERIFY).
+    """
+    if not auto_rotate:
+        r, w, h = _enhance_and_ocr(engine, img)
+        return img, r, w, h
+    try:
+        from app.utils.orientation import detect_rotation_candidate, apply_rotation
+    except Exception:
+        r, w, h = _enhance_and_ocr(engine, img)
+        return img, r, w, h
+
+    angle, conf = detect_rotation_candidate(img)
+    if angle == 0:
+        r, w, h = _enhance_and_ocr(engine, img)
+        return img, r, w, h
+    if conf >= AUTO_ROTATE_MIN_CONF:
+        # OSD emin: doğrudan döndür, tek geçiş
+        rimg = apply_rotation(img, angle)
+        r, w, h = _enhance_and_ocr(engine, rimg)
+        return rimg, r, w, h
+    if not AUTO_ROTATE_VERIFY:
+        r, w, h = _enhance_and_ocr(engine, img)
+        return img, r, w, h
+    # Düşük güven + sıfırdan farklı açı: OSD yönüne GÜVEN, ama 0° ile karşılaştır.
+    # OSD yönü fişlerde bile doğru; sadece 0° skoru öneriyi MARJIN kadar AŞARSA 0°'de kal
+    # (OSD'nin nadiren dik belgeyi yanlış döndürmesine karşı emniyet).
+    r0, w0, h0 = _enhance_and_ocr(engine, img)
+    rimg = apply_rotation(img, angle)
+    rr, wr, hr = _enhance_and_ocr(engine, rimg)
+    # Döndürülmüş yön SADECE belirgin daha çok gerçek kelime üretirse seçilir; aksi halde 0°.
+    if _score(rr) > _score(r0) * (1.0 + AUTO_ROTATE_VERIFY_MARGIN):
+        return rimg, rr, wr, hr
+    return img, r0, w0, h0
+
+
 def _run_rapidocr(
     image_bytes: bytes | None = None,
     image_array: np.ndarray | None = None,
@@ -124,36 +199,12 @@ def _run_rapidocr(
     if img is None:
         return [], 0, 0
 
-    # 1b. Otomatik yön düzeltme: yatay/ters gelmiş taranmış sayfayı dik konuma getir
-    #     (Tesseract OSD). Küçük bölgelerde util boyut eşiğiyle kendini devre dışı bırakır.
-    if auto_rotate:
-        try:
-            from app.utils.orientation import auto_orient
-            img, _rot = auto_orient(img)
-        except Exception:
-            pass
-
-    h, w = img.shape[:2]
-
-    # 2. Hafif ön işleme: sadece Türkçe diacritik koruması (CLAHE)
-    #    RapidOCR kendi preprocessing'ini yapıyor, ağır threshold/upscale gereksiz.
-    if RAPIDOCR_ENHANCE and max(h, w) < 2000:
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = img
-        try:
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            gray = clahe.apply(gray)
-        except Exception:
-            pass
-        img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-    elif len(img.shape) == 2:
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-
-    # 3. OCR İşlemi
-    # det_limit_side_len zaten engine içinde set edildiği için burada hızlı çalışacaktır.
-    result = engine(img, text_score=RAPIDOCR_TEXT_SCORE)
+    # 1b. Otomatik yön düzeltme (auto_rotate). İki mod:
+    #  - OSD güveni yüksek (>=MIN_CONF) veya r0: doğrudan uygula, TEK OCR geçişi (hız aynı).
+    #  - OSD sıfırdan farklı açı önerir ama güven düşük (fiş/fatura fotoğrafı): 0° ve önerilen
+    #    açıda OCR'layıp güven skoru toplamı MARJIN kadar yüksek olanı seç (yanlış döndürmeyi
+    #    önler). Emin olmadıkça 0°'de kalır.
+    img, result, w, h = _oriented_ocr(engine, img, auto_rotate)
 
     if result is None or result.boxes is None or len(result.boxes) == 0:
         return [], w, h
