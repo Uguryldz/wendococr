@@ -88,23 +88,25 @@ def detect_rotation(img: np.ndarray) -> int:
     return rotate if rotate in _ROTATE_CODE else 0
 
 
-OSD_UNKNOWN = -1  # OSD çöktü/karar veremedi -> çağıran 4-yön OCR oylaması yapsın
+OSD_UNKNOWN = -1   # OSD çöktü/karar veremedi -> çağıran 4-yön OCR oylaması yapsın
+OSD_DISABLED = -2  # auto-rotate KAPALI veya görüntü çok küçük -> hiç dokunma (oylama da yok)
 
 
 def detect_rotation_candidate(img: np.ndarray) -> tuple[int, float]:
     """
     OSD ham adayı: (açı, güven). Güven eşiği UYGULANMAZ — çağıran karar verir.
-    - (0, 0.0): OSD "dik" dedi VEYA auto-rotate kapalı/boyut altı -> döndürme.
-    - (OSD_UNKNOWN, 0.0): OSD ÇÖKTÜ (düşük çözünürlüklü fiş vb.) -> çağıran 4-yön
-      OCR oylaması yapmalı (OSD tespit edemedi ama belge yine de yatık olabilir).
+    - (OSD_DISABLED, 0.0): auto-rotate kapalı VEYA görüntü boyut-altı -> HİÇ dokunma,
+      oylama bile yapma (parametre ?auto_rotate=false burada devreye girer).
+    - (0, 0.0): OSD "dik" dedi (düşük güvenle) -> çağıran isterse oylayabilir.
+    - (OSD_UNKNOWN, 0.0): OSD ÇÖKTÜ -> çağıran 4-yön OCR oylaması yapmalı.
     - (90/180/270, conf): OSD bir açı önerdi.
     """
     if not _rotate_enabled() or img is None or img.size == 0:
-        return 0, 0.0
+        return OSD_DISABLED, 0.0
     h, w = img.shape[:2]
     # Doğrulama OCR ile korunduğu için düşük eşik (küçük fiş fotoğrafları da geçer).
     if min(h, w) < AUTO_ROTATE_VERIFY_MIN_SIDE:
-        return 0, 0.0
+        return OSD_DISABLED, 0.0
     gray = _to_gray(img)
     longest = max(h, w)
     if longest > AUTO_ROTATE_MAX_SIDE:

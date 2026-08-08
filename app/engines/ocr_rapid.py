@@ -165,12 +165,19 @@ def _oriented_ocr(engine, img: np.ndarray, auto_rotate: bool):
         r, w, h = _enhance_and_ocr(engine, img)
         return img, r, w, h
     try:
-        from app.utils.orientation import detect_rotation_candidate, apply_rotation, OSD_UNKNOWN
+        from app.utils.orientation import (
+            detect_rotation_candidate, apply_rotation, OSD_UNKNOWN, OSD_DISABLED,
+        )
     except Exception:
         r, w, h = _enhance_and_ocr(engine, img)
         return img, r, w, h
 
     angle, conf = detect_rotation_candidate(img)
+
+    # KAPALI / çok küçük görüntü: hiç dokunma, oylama da yapma (?auto_rotate=false burada).
+    if angle == OSD_DISABLED:
+        r, w, h = _enhance_and_ocr(engine, img)
+        return img, r, w, h
 
     # YÜKSEK GÜVEN: OSD'ye doğrudan güven, tek geçiş (temiz taranmış belgeler burada).
     if angle != OSD_UNKNOWN and conf >= AUTO_ROTATE_MIN_CONF:
