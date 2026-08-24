@@ -90,7 +90,9 @@ services:
     networks:
       - wendococr_net
     deploy:
-      replicas: 3
+      # 5 replica: toplu kosu kapasitesi (prod olay 2026-08-24: 3 worker partiye yetismedi).
+      # Her replica max 2 CPU — sunucu cekirdegine gore ayarlayin.
+      replicas: 5
       resources:
         limits:
           cpus: '2.0'

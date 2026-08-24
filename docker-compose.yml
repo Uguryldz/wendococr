@@ -12,7 +12,10 @@ services:
       UPLOAD_DIR: /tmp/wendococr
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       OCR_QUEUE_MAX_SIZE: "100"
-      OCR_QUEUE_TIMEOUT: "120"
+      # 300sn: WenDoc istemci zaman asimi (Ayarlar > Isleme > OCR zaman asimi) ile HIZALI.
+      # 120 iken toplu kosuda kuyruktaki isler istemciden ONCE sunucuda 504'e dusuyordu
+      # (prod olay 2026-08-24: 58x istemci AbortError + sunucu 504'leri).
+      OCR_QUEUE_TIMEOUT: "300"
     # KVKK: gelen belgeler RAM-backed PAYLASIMLI volume'de islenir (diske yazilmaz).
     # tmpfs degil cunku Redis modunda API ve worker AYRI container — dosyayi
     # paylasmalari gerek. tmpfs container-ozel olur, worker dosyayi goremez.
@@ -52,7 +55,9 @@ services:
     networks:
       - uinfra
     deploy:
-      replicas: 3
+      # 5 replica: toplu kosu kapasitesi (olay analizi: 3 seri worker 7-40sn/is ile
+      # partiye yetismiyordu). Her replica max 2 CPU — sunucu cekirdegine gore ayarlayin.
+      replicas: 5
       resources:
         limits:
           cpus: '2.0'
