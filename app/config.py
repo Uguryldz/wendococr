@@ -12,6 +12,19 @@ REDIS_URL = os.environ.get("REDIS_URL", "")  # boş = local mod (Redis yok)
 REDIS_QUEUE_NAME = os.environ.get("REDIS_QUEUE_NAME", "wendococr:jobs")
 REDIS_RESULT_TTL = int(os.environ.get("REDIS_RESULT_TTL", "300"))  # sonuç saklama süresi (sn)
 
+# ── Redis modu güvenilirlik (çok-makine + çökme kurtarma) ──
+# JOB_FILE_INLINE: API gelen dosyayı base64 ile Redis payload'ına GÖMER; worker kendi
+# tmpfs'ine yazıp işler, sonra siler. Böylece worker'lar API ile aynı makinede olmak
+# zorunda DEĞİL (2+ makine). Paylaşımlı volume gerekmez. KVKK: veri yine yalnız RAM/Redis.
+# Not: kuyruk derinliği × ortalama dosya boyutu Redis maxmemory'ye sığmalı.
+JOB_FILE_INLINE = os.environ.get("JOB_FILE_INLINE", "1") == "1"
+# Reaper: worker çökerse (heartbeat kesilir) işi processing listesinden geri kuyruğa alır.
+# Her worker bu aralıkla tarar (idempotent: lrem 1 dönerse requeue, yarış güvenli).
+REAPER_INTERVAL_SEC = int(os.environ.get("REAPER_INTERVAL_SEC", "30"))
+# Heartbeat atan ama patolojik takılmış iş için mutlak üst sınır (sn). Çok sayfalı PDF
+# uzun sürebilir; bunu OCR_QUEUE_TIMEOUT'un çok üstünde tut.
+JOB_HARD_MAX_SEC = int(os.environ.get("JOB_HARD_MAX_SEC", "3600"))
+
 # Geçici dosyalar. Bandit B108: bilincli — bu dizin compose'da tmpfs (RAM) +
 # mode=0700/uid=10001 ile mount edilir, dosyalar finally + cleanup ile silinir.
 UPLOAD_DIR = Path("/tmp/wendococr")  # nosec B108

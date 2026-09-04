@@ -1,0 +1,108 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# wendococr — 20 EŞ ZAMANLI BELGE için ölçekli yapılandırma (TEK BÜYÜK MAKİNE)
+#
+# GEREKSİNİM (ölçülmüş gerçek rakamlar, çalışan worker başına ~2 CPU + ~1 GB RAM):
+#   CPU : 20 worker × 2.0 + API 4 + Redis ≈ 44+ çekirdek   (min 40 önerilir)
+#   RAM : 20 × ~1 GB (pik) + API 4G + tmpfs 2G + OS ≈ 32 GB (min 32, güvenli 48)
+#   Disk: imaj katmanları PAYLAŞILIR → 20 worker ≈ 1.7 GB, 20× DEĞİL
+#
+# ÇOK-MAKİNE ARTIK MÜMKÜN: JOB_FILE_INLINE=1 ile API dosyayı Redis payload'ına gömer,
+# worker'lar paylaşımlı volume olmadan herhangi bir makinede çalışır. 40 CPU tek makine
+# yoksa: bu dosyayı Makine-1'de (redis+API+worker), docker-compose.worker-node.yml'i
+# diğer makinelerde kullan. Toplam eş zamanlılık = tüm worker'ların toplamı.
+#
+# 8 CPU'lu makinede BU DOSYAYI KULLANMA — 20 worker CPU için kavga eder, hız 4-5
+# worker'la aynı kalır. Orada docker-compose.yml (5 replica) yeterli.
+# ═══════════════════════════════════════════════════════════════════════════
+services:
+  wendococr:
+    image: uguryldz/wendococr:v1.1.3
+    container_name: wendococr
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    environment:
+      UPLOAD_DIR: /tmp/wendococr
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
+      # Kuyruk tamponu: 20 worker sürekli dolu tutulsun diye 500 bekleyen iş.
+      # Üstü 503 (QueueFull) → istemci backpressure uygulamalı (bekle-tekrar dene).
+      OCR_QUEUE_MAX_SIZE: "500"
+      # 600sn: 500 derin kuyruk, 20 worker, ~8-12sn/fiş → en kötü ~4-5 dk bekleme.
+      # 300 yeterli olmayabilir; toplu koşuda 504 önlemek için yükseltildi.
+      OCR_QUEUE_TIMEOUT: "600"
+    volumes:
+      - ocr_uploads:/tmp/wendococr
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - uinfra
+    deploy:
+      resources:
+        limits:
+          # API: 20+ eş zamanlı HTTP + dosya yazma + görsel obje tespiti
+          cpus: '4.0'
+          memory: 4G
+
+  wendococr-worker:
+    image: uguryldz/wendococr:v1.1.3
+    restart: unless-stopped
+    command: ["bash", "entrypoint.sh", "worker"]
+    environment:
+      UPLOAD_DIR: /tmp/wendococr
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
+      # Redis modunda worker TEK iş işler (OCR CPU-bound + GIL); bu değer yok sayılır.
+      OCR_MAX_WORKERS: "1"
+    volumes:
+      - ocr_uploads:/tmp/wendococr
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 30s
+    networks:
+      - uinfra
+    deploy:
+      # 20 replica = 20 eş zamanlı belge. Her biri kendi 2 CPU'sunda tek iş.
+      # cpu_limit.py ONNX thread'lerini bu kotaya (2) otomatik sabitler.
+      replicas: 20
+      resources:
+        limits:
+          cpus: '2.0'
+          # Ölçülen pik ~1 GB (küçük görsel). Büyük fiş/PDF için 2G tampon yeterli;
+          # 4G gereksizdi. 20 × 2G = limit, gerçek kullanım ~20 GB.
+          memory: 2G
+
+  redis:
+    image: redis:7-alpine
+    container_name: wendococr-redis
+    restart: unless-stopped
+    # Kuyruk (500 iş × küçük payload) + sonuçlar (TTL 300s) için 1 GB fazlasıyla yeter.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - uinfra
+
+networks:
+  uinfra:
+    external: true
+
+volumes:
+  # RAM-backed paylaşımlı volume (KVKK). 20 eş zamanlı × max 50 MB dosya = 1 GB;
+  # 2 GB tampon. Stack inince buharlaşır.
+  ocr_uploads:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=2g,mode=0700,uid=10001,gid=10001"
+  redis_data:

@@ -22,8 +22,11 @@ import logging
 import os
 import signal
 import time
+import base64
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any, Callable
 
 from app.config import (
@@ -33,12 +36,19 @@ from app.config import (
     REDIS_URL,
     REDIS_QUEUE_NAME,
     REDIS_RESULT_TTL,
+    JOB_FILE_INLINE,
+    REAPER_INTERVAL_SEC,
+    JOB_HARD_MAX_SEC,
+    UPLOAD_DIR,
 )
 
 logger = logging.getLogger("wendococr.pool")
 
 WORKER_HEARTBEAT_KEY = "wendococr:workers"
 WORKER_HEARTBEAT_TTL = 30  # saniye — 30s heartbeat gelmezse ölü sayılır
+# Payload'a gömülü dosyanın args içindeki yer tutucusu (worker kendi yerel yoluyla değiştirir)
+_FILE_PLACEHOLDER = "__WENDOCOCR_FILE__"
+PROCESSING_META_KEY = f"{REDIS_QUEUE_NAME}:processing_meta"  # job_id -> {worker_id, started_at}
 
 # GUVENLIK (K1): Worker, kuyruktan gelen iste GÖRE rastgele fonksiyon CAGIRMAZ.
 # Sadece bu allowlist'teki güvenli fonksiyonlar çalıştırılabilir. Job, fonksiyonu
@@ -177,13 +187,30 @@ class RedisWorkerPool:
         result_key = f"wendococr:result:{job_id}"
         # GUVENLIK (K1): fonksiyon allowlist anahtariyla referans verilir, JSON tasinir.
         # args icindeki Path -> str (JSON-uyumlu); process_document Path|str kabul eder.
-        job_data = json.dumps({
+        # ÇOK-MAKİNE (JOB_FILE_INLINE): ilk dosya argümanını base64 ile payload'a göm.
+        # Worker kendi tmpfs'ine yazıp işler; API ile aynı volume'u paylaşmak zorunda kalmaz.
+        # Kapalıysa eski davranış: yol (str) gönderilir, worker aynı makinede olmalı.
+        job_args: list = []
+        file_b64 = None
+        file_name = None
+        for a in args:
+            if JOB_FILE_INLINE and file_b64 is None and isinstance(a, os.PathLike) and Path(a).is_file():
+                file_b64 = base64.b64encode(Path(a).read_bytes()).decode("ascii")
+                file_name = Path(a).name
+                job_args.append(_FILE_PLACEHOLDER)
+            else:
+                job_args.append(str(a) if isinstance(a, os.PathLike) else a)
+        job: dict = {
             "job_id": job_id,
             "fn_key": _fn_key_for(fn),
-            "args": [str(a) if isinstance(a, os.PathLike) else a for a in args],
+            "args": job_args,
             "kwargs": kwargs,
             "submitted_at": time.time(),
-        }).encode("utf-8")
+        }
+        if file_b64 is not None:
+            job["file_b64"] = file_b64
+            job["file_name"] = file_name
+        job_data = json.dumps(job).encode("utf-8")
 
         self._redis.lpush(REDIS_QUEUE_NAME, job_data)
 
@@ -195,7 +222,10 @@ class RedisWorkerPool:
             )
         except asyncio.TimeoutError:
             self._timed_out += 1
-            self._redis.delete(result_key)
+            # SONUCU SİLME: worker işi yine de bitirip result_key'e TTL ile yazar. Eskiden
+            # delete() işi çöpe atıyordu. İstemci şimdilik 504 alır; job_id loglanır ki
+            # async iş API'si eklendiğinde sonuç geri alınabilsin.
+            logger.warning("Timeout (%ss) job=%s — sonuç Redis'te TTL ile bekliyor", OCR_QUEUE_TIMEOUT, job_id)
             raise QueueTimeoutError(f"Timeout ({OCR_QUEUE_TIMEOUT}s): {job_id}")
 
         if result.get("error"):
@@ -264,15 +294,65 @@ class RedisWorkerPool:
 # python -m app.core.worker_pool
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _reap_stale_jobs(r, processing_key: str) -> int:
+    """
+    ÇÖKME KURTARMA: ölü worker'ın (heartbeat kesik) veya patolojik uzun (JOB_HARD_MAX_SEC)
+    işini processing listesinden GERİ KUYRUĞA alır. Her worker periyodik çağırır.
+    Yarış güvenli: lrem tam 1 dönerse bu worker requeue eder; başkası aldıysa 0 döner, atlar.
+    Döner: geri alınan iş sayısı.
+    """
+    try:
+        meta = r.hgetall(PROCESSING_META_KEY)
+        if not meta:
+            return 0
+        beats = r.hgetall(WORKER_HEARTBEAT_KEY)
+        now = time.time()
+        alive = {k.decode() if isinstance(k, bytes) else k
+                 for k, ts in beats.items() if now - float(ts) < WORKER_HEARTBEAT_TTL}
+        stale: dict[str, str] = {}
+        for jid_b, m_b in meta.items():
+            jid = jid_b.decode() if isinstance(jid_b, bytes) else jid_b
+            try:
+                m = json.loads(m_b)
+            except Exception:
+                stale[jid] = "bozuk-meta"; continue
+            if m.get("worker_id") not in alive:
+                stale[jid] = "worker-olu"
+            elif now - float(m.get("started_at", now)) > JOB_HARD_MAX_SEC:
+                stale[jid] = "hard-max"
+        if not stale:
+            return 0
+        requeued = 0
+        for raw in r.lrange(processing_key, 0, -1):
+            try:
+                jid = json.loads(raw).get("job_id")
+            except Exception:
+                continue
+            if jid in stale:
+                if r.lrem(processing_key, 1, raw) == 1:
+                    r.lpush(REDIS_QUEUE_NAME, raw)
+                    requeued += 1
+                    logger.warning("REAPER: is geri kuyruga alindi %s (%s)", jid[:8], stale[jid])
+                r.hdel(PROCESSING_META_KEY, jid)
+        # processing listesinde olmayan ama meta'da kalan yetimleri temizle
+        for jid in stale:
+            r.hdel(PROCESSING_META_KEY, jid)
+        return requeued
+    except Exception as e:
+        logger.error("Reaper hatasi: %s", e)
+        return 0
+
+
 def run_worker():
     """
     Worker container'da çalışır:
         command: python -m app.core.worker_pool
 
-    - Redis'ten BRPOPLPUSH ile iş alır (reliable queue)
-    - OCR işler, sonucu Redis'e yazar
-    - Çökerse processing listesinden geri alınır → kayıp yok
-    - Heartbeat gönderir → main kaç worker aktif bilir
+    - Redis'ten BRPOPLPUSH ile iş alır (reliable queue: iş processing listesine taşınır)
+    - Dosya payload'a gömülüyse (JOB_FILE_INLINE) kendi tmpfs'ine yazar -> ÇOK-MAKİNE
+    - OCR işler, sonucu Redis'e yazar, yerel dosyayı siler (KVKK)
+    - Heartbeat AYRI THREAD'de: OCR sırasında da atılır -> uzun iş ölü sanılmaz
+    - Reaper: ölü worker'ın takılı işini geri kuyruğa alır -> çökmede kayıp yok
     """
     import redis as redis_lib
 
@@ -284,18 +364,24 @@ def run_worker():
     r = redis_lib.Redis.from_url(REDIS_URL, decode_responses=False)
     r.ping()
 
-    worker_id = f"{os.getpid()}@{os.uname().nodename}"
+    # BENZERSİZ worker_id: container'da pid hep 1, --network host'ta hostname aynı ->
+    # "1@host" çakışır; reaper ölü worker'ı canlı sanır, işini geri almazdı. UUID eki şart.
+    worker_id = f"{os.getpid()}@{os.uname().nodename}:{uuid.uuid4().hex[:8]}"
     processing_key = f"{REDIS_QUEUE_NAME}:processing"
     running = True
     processed = 0
-    last_heartbeat = 0
 
-    def _heartbeat():
-        nonlocal last_heartbeat
-        now = time.time()
-        if now - last_heartbeat > 10:
-            r.hset(WORKER_HEARTBEAT_KEY, worker_id, str(now))
-            last_heartbeat = now
+    # HEARTBEAT THREAD: döngü içinde değil, arka planda. Böylece worker 60sn'lik bir PDF
+    # işlerken de heartbeat atar; reaper onu yanlışlıkla ölü sayıp işini çalmaz.
+    def _heartbeat_loop():
+        hb = redis_lib.Redis.from_url(REDIS_URL, decode_responses=False)
+        while running:
+            try:
+                hb.hset(WORKER_HEARTBEAT_KEY, worker_id, str(time.time()))
+            except Exception:
+                pass
+            time.sleep(10)
+    threading.Thread(target=_heartbeat_loop, daemon=True, name="heartbeat").start()
 
     def handle_signal(sig, frame):
         nonlocal running
@@ -305,14 +391,17 @@ def run_worker():
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    logger.info("Worker baslatildi: %s | Queue: %s", worker_id, REDIS_QUEUE_NAME)
+    logger.info("Worker baslatildi: %s | Queue: %s | inline-file=%s", worker_id, REDIS_QUEUE_NAME, JOB_FILE_INLINE)
+    last_reap = 0.0
 
     while running:
         try:
-            _heartbeat()
+            # REAPER: periyodik, ucuz (meta hash + processing listesi taraması)
+            if time.time() - last_reap > REAPER_INTERVAL_SEC:
+                _reap_stale_jobs(r, processing_key)
+                last_reap = time.time()
 
             # redis-py 8+: bos kuyrukta blocking pop None dondurmez, TimeoutError firlatir.
-            # Bu normal bir "is yok" durumu — hata degil, sessizce dongu basa doner.
             try:
                 raw = r.brpoplpush(REDIS_QUEUE_NAME, processing_key, timeout=5)
             except redis_lib.exceptions.TimeoutError:
@@ -320,18 +409,29 @@ def run_worker():
             if raw is None:
                 continue
 
-            # GUVENLIK (K1): JSON parse + allowlist. Kuyruktaki veri keyfi kod/fonksiyon
-            # tasiyamaz; bilinmeyen fn_key veya bozuk JSON reddedilir.
+            # GUVENLIK (K1): JSON parse + allowlist.
             job = json.loads(raw)
             job_id = job["job_id"]
             result_key = f"wendococr:result:{job_id}"
+            # Sahiplik kaydı: reaper hangi worker'ın işi olduğunu buradan bilir.
+            r.hset(PROCESSING_META_KEY, job_id, json.dumps({"worker_id": worker_id, "started_at": time.time()}))
 
             logger.info("Is alindi: %s | %s", job_id[:8], job.get("fn_key", "?"))
             start = time.time()
+            local_file: Path | None = None
 
             try:
+                args = list(job.get("args", []))
+                # ÇOK-MAKİNE: payload'daki dosyayı KENDİ tmpfs'ine yaz, yer tutucuyu değiştir.
+                if job.get("file_b64"):
+                    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+                    safe = "".join(c for c in str(job.get("file_name") or "file")[:80] if c.isalnum() or c in "._-") or "file"
+                    local_file = UPLOAD_DIR / f"{job_id}_{safe}"
+                    local_file.write_bytes(base64.b64decode(job["file_b64"]))
+                    args = [str(local_file) if a == _FILE_PLACEHOLDER else a for a in args]
+
                 fn = _resolve_allowed(job["fn_key"])  # allowlist disi -> ValueError
-                result_data = fn(*job.get("args", []), **job.get("kwargs", {}))
+                result_data = fn(*args, **job.get("kwargs", {}))
 
                 r.lpush(result_key, json.dumps({"data": result_data, "error": None}).encode("utf-8"))
                 r.expire(result_key, REDIS_RESULT_TTL)
@@ -346,7 +446,14 @@ def run_worker():
                 r.expire(result_key, REDIS_RESULT_TTL)
 
             finally:
+                # KVKK: yerel kopyayı hemen sil
+                if local_file is not None:
+                    try:
+                        local_file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
                 r.lrem(processing_key, 1, raw)
+                r.hdel(PROCESSING_META_KEY, job_id)
 
         except Exception as e:
             if running:
