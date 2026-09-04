@@ -83,6 +83,37 @@ def _fn_key_for(fn: Callable) -> str:
     raise ValueError(f"Allowlist disi fonksiyon submit edilemez: {target}")
 
 
+def _redis_client():
+    """
+    Tüm Redis bağlantıları buradan. FAILOVER SERTLEŞTİRMESİ (aktif-aktif, önde VIP/proxy):
+    VIP yeni master'a geçince eski bağlantı kopar; bu komutu 500'e düşürmek yerine üstel
+    bekleme ile yeniden dene (~0.1s..2s, 5 deneme). Replica yeni master olurken kısa süre
+    LOADING döner -> BusyLoadingError da yeniden denenir. health_check_interval: boşta
+    kalmış bağlantıyı kullanmadan önce PING ile yoklar, ölüyse sessizce yeniler.
+
+    TimeoutError BİLEREK retry DIŞINDA: bu kodda blocking pop'un (brpoplpush/blpop)
+    normal "iş yok" sinyali. Varsayılan Retry onu da deniyor; buraya girerse worker
+    döngüsünün heartbeat/reaper zamanlaması bozulur. Kendi Retry'ımız onu kapsamaz.
+    """
+    import redis
+    from redis.backoff import ExponentialBackoff
+    from redis.exceptions import BusyLoadingError
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from redis.retry import Retry
+    retry = Retry(
+        ExponentialBackoff(cap=2.0, base=0.1),
+        retries=5,
+        supported_errors=(RedisConnectionError, BusyLoadingError),
+    )
+    return redis.Redis.from_url(
+        REDIS_URL,
+        decode_responses=False,
+        retry=retry,
+        retry_on_error=[RedisConnectionError, BusyLoadingError],
+        health_check_interval=30,
+    )
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LOCAL MOD (Redis yok, tek makine)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -168,8 +199,7 @@ class RedisWorkerPool:
     """
 
     def __init__(self):
-        import redis
-        self._redis = redis.Redis.from_url(REDIS_URL, decode_responses=False)
+        self._redis = _redis_client()
         self._redis.ping()
         self._processed = 0
         self._failed = 0
@@ -237,7 +267,7 @@ class RedisWorkerPool:
 
     def _wait_result(self, result_key: str) -> dict:
         import redis
-        r = redis.Redis.from_url(REDIS_URL, decode_responses=False)
+        r = _redis_client()
         try:
             while True:
                 # redis-py 8+: sonuc henuz yokken blpop None yerine TimeoutError firlatir.
@@ -361,7 +391,7 @@ def run_worker():
         format="%(asctime)s [WORKER-%(process)d] %(message)s",
     )
 
-    r = redis_lib.Redis.from_url(REDIS_URL, decode_responses=False)
+    r = _redis_client()
     r.ping()
 
     # BENZERSİZ worker_id: container'da pid hep 1, --network host'ta hostname aynı ->
@@ -374,7 +404,7 @@ def run_worker():
     # HEARTBEAT THREAD: döngü içinde değil, arka planda. Böylece worker 60sn'lik bir PDF
     # işlerken de heartbeat atar; reaper onu yanlışlıkla ölü sayıp işini çalmaz.
     def _heartbeat_loop():
-        hb = redis_lib.Redis.from_url(REDIS_URL, decode_responses=False)
+        hb = _redis_client()
         while running:
             try:
                 hb.hset(WORKER_HEARTBEAT_KEY, worker_id, str(time.time()))
