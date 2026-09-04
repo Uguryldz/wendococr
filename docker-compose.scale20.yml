@@ -23,7 +23,7 @@ services:
       - "8099:8099"
     environment:
       UPLOAD_DIR: /tmp/wendococr
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/1"
       # Kuyruk tamponu: 20 worker sürekli dolu tutulsun diye 500 bekleyen iş.
       # Üstü 503 (QueueFull) → istemci backpressure uygulamalı (bekle-tekrar dene).
       OCR_QUEUE_MAX_SIZE: "500"
@@ -51,7 +51,7 @@ services:
     command: ["bash", "entrypoint.sh", "worker"]
     environment:
       UPLOAD_DIR: /tmp/wendococr
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/1"
       # Redis modunda worker TEK iş işler (OCR CPU-bound + GIL); bu değer yok sayılır.
       OCR_MAX_WORKERS: "1"
     volumes:
@@ -80,12 +80,20 @@ services:
     image: redis:7-alpine
     container_name: wendococr-redis
     restart: unless-stopped
-    # Kuyruk (500 iş × küçük payload) + sonuçlar (TTL 300s) için 1 GB fazlasıyla yeter.
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    # 2. MAKİNE için: Redis'i ÖZEL ağ IP'sine aç (REDIS_BIND=makine1-özel-ip). İnternete AÇMA.
+    # Tek makinedeysen REDIS_BIND'i boş bırak -> sadece localhost.
+    ports:
+      - "${REDIS_BIND:-127.0.0.1}:6379:6379"
+    # Parola ZORUNLU (port açık olduğu için). Kuyruk + sonuçlar için 1 GB yeter.
+    # Not: JOB_FILE_INLINE ile dosyalar payload'da -> derin kuyrukta RAM artar;
+    # 500 iş × ~2 MB ≈ 1 GB. Büyük dosyalar yoğunsa maxmemory'yi artır.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD zorunlu}"]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
