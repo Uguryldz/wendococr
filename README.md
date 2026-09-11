@@ -5,9 +5,9 @@ PDF, JPG ve PNG belgelerini işleyen **FastAPI** tabanlı akıllı karar mekaniz
 ## Özellikler
 
 - **Auto mod:** Belge türüne göre otomatik engine seçimi (sayfa bazlı)
-- **Motorlar:** `pdftext` (PyMuPDF), `pdftexttable` (pdfplumber), `pdfimagev5` (RapidOCR), `pdfimagets` (Tesseract Türkçe), `pdftxtimage` (hibrit), `pdfimagetable` (tablo korumalı hibrit)
-- **API:** Her motorun ayrı ucu – `POST /v1/auto`, `/v1/pdftext`, `/v1/pdftexttable`, `/v1/pdfimagev5`, `/v1/pdfimagets`, `/v1/pdftxtimage`, `/v1/pdfimagetable`
-- **Parametreler:** `page_range` (1-5, 1,3,7), `format` (json/text)
+- **Motorlar:** `pdftext` (PyMuPDF), `pdftexttable` (pdfplumber; fatura satırları tablo-satırı-farkında, hücreler ` | ` ile tek satır), `pdfimagev5` (RapidOCR), `imagetexthybrid` (dijital metin + görsel antet), `pdfimagetable` (tablo korumalı hibrit), `icr` (el yazısı/Tesseract)
+- **API:** Her motorun ayrı ucu – `POST /v1/auto`, `/v1/pdftext`, `/v1/pdftexttable`, `/v1/pdfimagev5`, `/v1/imagetexthybrid`, `/v1/pdfimagetable`, `/v1/icr`, `/v1/findeksexport`
+- **Parametreler:** `page_range` (1-5, 1,3,7), `format` (json/text), `auto_rotate` (varsayılan açık)
 - **Çıktı:** JSON veya düz metin (sayfa bazlı `content` + `tables`)
 
 ## Kurulum

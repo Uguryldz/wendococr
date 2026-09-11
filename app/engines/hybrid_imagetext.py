@@ -76,7 +76,7 @@ def _native_lines(page) -> list[dict[str, Any]]:
         if block.get("type") != 0:
             continue
         for line in block.get("lines", []):
-            text = "".join(s.get("text", "") for s in line.get("spans", [])).strip()
+            text = "".join(s.get("text", "") for s in line.get("spans", [])).replace("\xad", "-").strip()
             if not text:
                 continue
             b = line["bbox"]

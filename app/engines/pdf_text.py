@@ -53,7 +53,8 @@ def extract(
             for block in blocks:
                 for line in block.get("lines") or []:
                     spans = line.get("spans") or []
-                    line_text = "".join(s.get("text", "") for s in spans)
+                    # U+00AD soft hyphen -> "-" ("14\xad01\xad2025" -> "14-01-2025")
+                    line_text = "".join(s.get("text", "") for s in spans).replace("\xad", "-")
                     if not line_text.strip():
                         continue
                     bboxes = []
