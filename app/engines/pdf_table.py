@@ -180,15 +180,35 @@ def _split_word_at_cells(w: dict, cells: list[list[float]]) -> list[dict]:
 def _assign_words_to_cells(
     words: list[dict],
     cells_bbox: list[list[list[float] | None]],
-) -> tuple[dict[tuple[int, int], list[dict]], set[int]]:
+) -> tuple[dict[tuple[int, int], list[dict]], set[int], int]:
     """Kelimeleri (merkez noktasına göre) hücrelere dağıtır.
-    Döner: {(row, col): [kelimeler]}, yerleşen kelimelerin id()'leri."""
+    Döner: {(row, col): [kelimeler]}, yerleşen kelimelerin id()'leri, hücre sınırında
+    bölünen kelime sayısı (yüksekse "tablo" aslında kelimeleri kesen çizgi/kutucuk)."""
     buckets: dict[tuple[int, int], list[dict]] = {}
     placed_ids: set[int] = set()
+    split_count = 0
     row_ranges: list[tuple[float, float] | None] = []
     for cells in cells_bbox:
         u = _union([c for c in cells if c])
         row_ranges.append((u[1], u[3]) if u else None)
+
+    # Sütun şablonu: en çok hücresi olan satır (genelde başlık). Sadece yatay çizgili
+    # satırlarda (dikey çizgi yalnız başlıkta) pdfplumber tüm satırı TEK geniş hücre verir;
+    # o satırların kelimeleri şablon sütun aralıklarına göre dağıtılır.
+    template: list[list[float] | None] | None = None
+    tbl_u = _union([c for cells in cells_bbox for c in cells if c])
+    tbl_w = (tbl_u[2] - tbl_u[0]) if tbl_u else 0.0
+    best = max(cells_bbox, key=lambda cells: sum(1 for c in cells if c), default=None)
+    if best is not None and sum(1 for c in best if c) >= 3:
+        template = best
+
+    def _row_cells_for(r_idx: int) -> list[list[float] | None]:
+        cells = cells_bbox[r_idx]
+        real = [c for c in cells if c]
+        if template is not None and len(real) <= 1 and real and tbl_w > 0 and (real[0][2] - real[0][0]) >= 0.9 * tbl_w:
+            rng = row_ranges[r_idx]
+            return [[c[0], rng[0], c[2], rng[1]] if c else None for c in template]
+        return cells
 
     for w in words:
         cx, cy = w["_cx"], w["_cy"]
@@ -206,23 +226,27 @@ def _assign_words_to_cells(
                     break
         if r_hit is None:
             continue
-        row_cells = [c for c in cells_bbox[r_hit] if c]
-        for piece in _split_word_at_cells(w, row_cells) if row_cells else [w]:
+        eff_cells = _row_cells_for(r_hit)
+        row_cells = [c for c in eff_cells if c]
+        pieces = _split_word_at_cells(w, row_cells) if row_cells else [w]
+        if len(pieces) > 1:
+            split_count += 1
+        for piece in pieces:
             pcx = piece["_cx"]
             c_hit = None
-            for c_idx, c in enumerate(cells_bbox[r_hit]):
+            for c_idx, c in enumerate(eff_cells):
                 if c is not None and (c[0] - 0.5) <= pcx <= (c[2] + 0.5):
                     c_hit = c_idx
                     break
             if c_hit is None:
                 # Hücresi olmayan (birleşik/None) bölge veya kenar taşması: en yakın hücre
-                cands = [(abs(pcx - (c[0] + c[2]) / 2), c_idx) for c_idx, c in enumerate(cells_bbox[r_hit]) if c]
+                cands = [(abs(pcx - (c[0] + c[2]) / 2), c_idx) for c_idx, c in enumerate(eff_cells) if c]
                 if not cands:
                     continue
                 c_hit = min(cands)[1]
             buckets.setdefault((r_hit, c_hit), []).append(piece)
             placed_ids.add(id(w))
-    return buckets, placed_ids
+    return buckets, placed_ids, split_count
 
 
 def _cell_text(ws: list[dict], keep_lines: bool) -> str:
@@ -255,10 +279,14 @@ def _is_data_table(rows_raw: list[list[str]]) -> bool:
     return True
 
 
-def _extract_tables(page, words: list[dict]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict]]:
-    """Döner: tables_data, content için satır blokları, tablo dışında kalan kelimeler."""
+def _extract_tables(
+    page, words: list[dict]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict], list[list[float]]]:
+    """Döner: tables_data, content için satır blokları, tablo dışında kalan kelimeler,
+    satır bazlı render edilen (veri tablosu) bbox'ları."""
     tables_data: list[dict[str, Any]] = []
     row_blocks: list[dict[str, Any]] = []
+    data_bboxes: list[list[float]] = []
     consumed: set[int] = set()
     try:
         found = page.find_tables()
@@ -278,7 +306,7 @@ def _extract_tables(page, words: list[dict]) -> tuple[list[dict[str, Any]], list
         fallback = _fallback_rows(raw_rows)
 
         cand = [w for w in words if id(w) not in consumed and _in_bbox(w["_cx"], w["_cy"], tbl_bbox, TABLE_MEMBER_TOL)]
-        buckets, placed = _assign_words_to_cells(cand, cells_bbox) if cells_bbox else ({}, set())
+        buckets, placed, n_split = _assign_words_to_cells(cand, cells_bbox) if cells_bbox else ({}, set(), 0)
 
         # Önce satır sonları korunarak hücre metni (veri tablosu kararı için)
         rows_ml: list[list[str]] = []
@@ -296,7 +324,13 @@ def _extract_tables(page, words: list[dict]) -> tuple[list[dict[str, Any]], list
         if not rows_ml:
             rows_ml = fallback
 
-        data_table = _is_data_table(rows_ml)
+        # Veri tablosu: en az 2 satır; kelimelerin >%15'i hücre sınırında bölünüyorsa bu
+        # "tablo" kelimeleri kesen kutucuk/çizgi demektir (CV yetenek etiketleri) -> değil.
+        data_table = (
+            _is_data_table(rows_ml)
+            and len(rows_ml) >= 2
+            and (not placed or n_split <= 0.15 * len(placed))
+        )
         rows_out = [[_norm(c) for c in r] for r in rows_ml] if data_table else rows_ml
         tables_data.append({"rows": rows_out, "bbox": tbl_bbox, "cells_bbox": cells_bbox})
 
@@ -304,6 +338,7 @@ def _extract_tables(page, words: list[dict]) -> tuple[list[dict[str, Any]], list
             # Düzen konteyneri: kelimeler serbest metin olarak kalır
             continue
         consumed |= placed
+        data_bboxes.append(tbl_bbox)
         for r_idx, row_cells in enumerate(rows_out):
             line = CELL_SEP.join(row_cells).strip()
             if not line.strip("| "):
@@ -312,7 +347,19 @@ def _extract_tables(page, words: list[dict]) -> tuple[list[dict[str, Any]], list
             row_blocks.append({"text": line, "bbox": rb})
 
     free_words = [w for w in words if id(w) not in consumed]
-    return tables_data, row_blocks, free_words
+    return tables_data, row_blocks, free_words, data_bboxes
+
+
+def extract_page_tables(page) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[list[float]]]:
+    """Diğer motorlar (imagetexthybrid) için: pdfplumber sayfasındaki veri tablolarını
+    satır bloklarına çevirir. Döner: (tables_data, row_blocks, veri tablosu bbox'ları).
+    Koordinatlar PDF nokta birimi, sol-üst orijin (fitz ile aynı)."""
+    try:
+        words = _page_words(page)
+        tables_data, row_blocks, _free, data_bboxes = _extract_tables(page, words)
+        return tables_data, row_blocks, data_bboxes
+    except Exception:
+        return [], [], []
 
 
 # --------------------------------------------------------------------------- giriş
@@ -341,7 +388,7 @@ def extract(
                 page_height = page_bbox[3] - page_bbox[1] if page_bbox else None
 
                 words = _page_words(page)
-                tables_data, row_blocks, free_words = _extract_tables(page, words)
+                tables_data, row_blocks, free_words, _data_bboxes = _extract_tables(page, words)
 
                 text_blocks = _free_text_blocks(free_words)
                 text_blocks.extend(row_blocks)

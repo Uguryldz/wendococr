@@ -257,3 +257,68 @@ def apply_grid_tables(
 
     free = [b for b in text_blocks if id(b) not in consumed]
     return tables_data, row_blocks, free
+
+# --------------------------------------------------------------------------- deskew
+DESKEW_MAX_DEG = 12.0
+DESKEW_MIN_DEG = 0.3
+
+
+def estimate_skew_by_lines(img: np.ndarray) -> float | None:
+    """Uzun cetvel çizgilerinden (tablo kenarları) eğiklik açısı (derece, saat yönü +).
+    Çizgi yoksa / çizgiler uyuşmuyorsa None (fiş fotoğrafı gibi belgelerde dokunulmaz)."""
+    if img is None or img.size == 0:
+        return None
+    try:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+        h, w = gray.shape[:2]
+        scale = 1200.0 / max(h, w)
+        if scale < 1.0:
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            h, w = gray.shape[:2]
+        edges = cv2.Canny(gray, 50, 150)
+        min_len = int(0.22 * max(h, w))
+        lines = cv2.HoughLinesP(edges, 1, np.pi / 720, threshold=120, minLineLength=min_len, maxLineGap=20)
+        if lines is None:
+            return None
+        angs: list[tuple[float, float]] = []  # (açı, uzunluk)
+        for x1, y1, x2, y2 in np.asarray(lines).reshape(-1, 4):
+            dx, dy = float(x2 - x1), float(y2 - y1)
+            length = float(np.hypot(dx, dy))
+            if length < min_len:
+                continue
+            ang = float(np.degrees(np.arctan2(dy, dx)))
+            # yatay çizgiler: açı ~0; dikey çizgiler: ~±90 -> aynı eğikliğe indirge
+            if abs(ang) <= DESKEW_MAX_DEG:
+                angs.append((ang, length))
+            elif abs(abs(ang) - 90.0) <= DESKEW_MAX_DEG:
+                angs.append((ang - 90.0 if ang > 0 else ang + 90.0, length))
+        if len(angs) < 3:
+            return None
+        angs.sort()
+        total = sum(l for _, l in angs)
+        if total < 1.5 * max(h, w):
+            return None
+        acc = 0.0
+        med = angs[-1][0]
+        for a, l in angs:
+            acc += l
+            if acc >= total / 2:
+                med = a
+                break
+        agree = sum(l for a, l in angs if abs(a - med) <= 0.7)
+        if agree < 0.8 * total:
+            return None
+        return med
+    except Exception:
+        return None
+
+
+def deskew_by_lines(img: np.ndarray) -> tuple[np.ndarray, float]:
+    """Cetvel çizgilerine göre küçük açı düzeltmesi. Döner: (görüntü, uygulanan açı)."""
+    ang = estimate_skew_by_lines(img)
+    if ang is None or abs(ang) < DESKEW_MIN_DEG or abs(ang) > DESKEW_MAX_DEG:
+        return img, 0.0
+    h, w = img.shape[:2]
+    M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), ang, 1.0)
+    out = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    return out, ang

@@ -277,14 +277,24 @@ def extract(
     page_no = (page_numbers[0] + 1) if page_numbers else 1
 
     if image_bytes:
-        lines_bbox, page_width, page_height, used_img = _run_rapidocr(image_bytes=image_bytes, return_image=True)
+        img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
     elif file_path:
         file_path = Path(file_path)
         if not file_path.exists(): return []
         img = load_image(str(file_path))
-        lines_bbox, page_width, page_height, used_img = _run_rapidocr(image_array=img, return_image=True)
     else:
         return []
+    if img is None:
+        return []
+    if OCR_GRID_TABLES:
+        # Küçük açı düzeltmesi (cetvel çizgilerinden): eğik tarama/fotoda hem OCR hem
+        # tablo ızgarası düzelir. Çizgisiz belgede (fiş) açı bulunamaz -> dokunulmaz.
+        try:
+            from app.utils.table_grid import deskew_by_lines
+            img, _ = deskew_by_lines(img)
+        except Exception:
+            pass
+    lines_bbox, page_width, page_height, used_img = _run_rapidocr(image_array=img, return_image=True)
 
     text_blocks = [{"text": t, "bbox": b} for b, t in lines_bbox]
     tables: list[dict[str, Any]] = []

@@ -177,7 +177,7 @@ def _has_ink(page, clip: fitz.Rect) -> bool:
 
 # ── 4. Bölgesel OCR ────────────────────────────────────────────────────────
 
-def _ocr_region(page, clip: fitz.Rect) -> list[dict[str, Any]]:
+def _ocr_region(page, clip: fitz.Rect, grid: bool = False):
     """Bölgeyi render edip OCR'lar; kutuları sayfa koordinat uzayına geri map'ler."""
     from app.engines.ocr_rapid import _run_rapidocr
 
@@ -185,9 +185,9 @@ def _ocr_region(page, clip: fitz.Rect) -> list[dict[str, Any]]:
     try:
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip)
     except Exception:
-        return []
+        return ([], []) if grid else []
     if pix.width == 0 or pix.height == 0:
-        return []
+        return ([], []) if grid else []
 
     img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
     if pix.n == 1:
@@ -212,16 +212,34 @@ def _ocr_region(page, clip: fitz.Rect) -> list[dict[str, Any]]:
     # antet) zaten dik gelir; saf taranmış/rescan sayfaların yönü ayrı ele alınır.
     lines_bbox, _, _ = _run_rapidocr(image_array=img, auto_rotate=False)
 
+    def _to_page(bbox):
+        return [
+            clip.x0 + bbox[0] / zoom, clip.y0 + bbox[1] / zoom,
+            clip.x0 + bbox[2] / zoom, clip.y0 + bbox[3] / zoom,
+        ]
+
+    raw = [{"text": text, "bbox": list(bbox)} for bbox, text in lines_bbox]
+    tables: list[dict[str, Any]] = []
+    row_blocks: list[dict[str, Any]] = []
+    if grid and raw:
+        # Taranmış fatura: çizgili tablo ızgarası -> tablo satırı tek satır (bkz. table_grid)
+        try:
+            from app.utils.table_grid import apply_grid_tables, detect_grid_tables
+            grids = detect_grid_tables(img)
+            if grids:
+                tables, rows_img, raw = apply_grid_tables(raw, grids)
+                for t in tables:
+                    t["bbox"] = _to_page(t["bbox"])
+                    t["cells_bbox"] = [[_to_page(c) if c else None for c in r] for r in t["cells_bbox"]]
+                row_blocks = [{"text": r["text"], "bbox": _to_page(r["bbox"]), "source": "table"} for r in rows_img]
+        except Exception:
+            tables, row_blocks = [], []
+
     out: list[dict[str, Any]] = []
-    for bbox, text in lines_bbox:
-        out.append({
-            "text": text,
-            "bbox": [
-                clip.x0 + bbox[0] / zoom, clip.y0 + bbox[1] / zoom,
-                clip.x0 + bbox[2] / zoom, clip.y0 + bbox[3] / zoom,
-            ],
-            "source": "ocr",
-        })
+    for r in raw:
+        out.append({"text": r["text"], "bbox": _to_page(r["bbox"]), "source": "ocr"})
+    if grid:
+        return out + row_blocks, tables
     return out
 
 
@@ -292,20 +310,46 @@ def _in_regions(bbox: list[float], regions: list[fitz.Rect]) -> bool:
     return any(r.x0 <= cx <= r.x1 and r.y0 <= cy <= r.y1 for r in regions)
 
 
-def _process_page(page) -> dict[str, Any]:
+def _apply_native_tables(native: list[dict[str, Any]], plumber_page) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Dijital sayfadaki veri tablolarını (pdfplumber) satır bloklarına çevirir:
+    tablo içine düşen dijital satırlar çıkarılır, yerine her tablo satırı TEK blok
+    (hücreler " | ") konur. Fatura kalemi y-gruplamada bölünmez (pdftexttable ile aynı)."""
+    if plumber_page is None:
+        return native, []
+    try:
+        from app.engines.pdf_table import extract_page_tables
+        tables, row_blocks, data_bboxes = extract_page_tables(plumber_page)
+    except Exception:
+        return native, []
+    if not row_blocks:
+        return native, tables
+    kept = []
+    for l in native:
+        cx = (l["bbox"][0] + l["bbox"][2]) / 2
+        cy = (l["bbox"][1] + l["bbox"][3]) / 2
+        if any(b[0] - 1 <= cx <= b[2] + 1 and b[1] - 1 <= cy <= b[3] + 1 for b in data_bboxes):
+            continue
+        kept.append(l)
+    kept.extend({"text": r["text"], "bbox": r["bbox"], "source": "table"} for r in row_blocks)
+    return kept, tables
+
+
+def _process_page(page, plumber_page=None) -> dict[str, Any]:
     native = _native_lines(page)
     native_chars = sum(len(l["text"]) for l in native)
+    tables: list[dict[str, Any]] = []
 
     if native_chars < HYBRID_MIN_NATIVE_CHARS:
-        # Saf taranmış sayfa: tüm sayfayı OCR'la
-        lines = _ocr_region(page, fitz.Rect(page.rect))
+        # Saf taranmış sayfa: tüm sayfayı OCR'la (çizgili tablo varsa satır bazlı)
+        lines, tables = _ocr_region(page, fitz.Rect(page.rect), grid=True)
         mode = "ocr_full"
     elif _text_layer_untrustworthy(page, native):
         # Metin katmanı VAR ama başka bir aracın bozuk OCR'ı (tarih "2l l0'7 /2026" gibi).
         # Katmanı tümden yok say, sayfayı kendimiz OCR'la — kendi motorumuz belirgin daha doğru.
-        lines = _ocr_region(page, fitz.Rect(page.rect))
+        lines, tables = _ocr_region(page, fitz.Rect(page.rect), grid=True)
         mode = "ocr_rescan"
     else:
+        native, tables = _apply_native_tables(native, plumber_page)
         # Aday bölge yoksa hiç OCR açma — saf dijital sayfalar 0 sn'de biter.
         regions = [r for r in _candidate_regions(page, native) if _has_ink(page, r)]
         if not regions:
@@ -326,6 +370,7 @@ def _process_page(page) -> dict[str, Any]:
     text_blocks = [{"text": l["text"], "bbox": l["bbox"], "source": l["source"]} for l in lines]
     return {
         "content": content_from_text_blocks_with_bbox(text_blocks),
+        "tables": tables,
         "text_blocks": text_blocks,
         "page_width": float(page.rect.width),
         "page_height": float(page.rect.height),
@@ -361,13 +406,28 @@ def extract(
         targets = list(range(total)) if page_numbers is None else [
             i for i in page_numbers if 0 <= i < total
         ]
-        for idx in targets:
-            page_data = _process_page(doc.load_page(idx))
-            out.append({
-                "page_number": idx + 1,
-                "tables": [],
-                **page_data,
-            })
+        plumber = None
+        try:
+            import pdfplumber
+            plumber = pdfplumber.open(path)
+        except Exception:
+            plumber = None
+        try:
+            for idx in targets:
+                ppage = None
+                if plumber is not None and idx < len(plumber.pages):
+                    ppage = plumber.pages[idx]
+                page_data = _process_page(doc.load_page(idx), plumber_page=ppage)
+                out.append({
+                    "page_number": idx + 1,
+                    **page_data,
+                })
+        finally:
+            if plumber is not None:
+                try:
+                    plumber.close()
+                except Exception:
+                    pass
     except Exception:
         return out
     finally:
