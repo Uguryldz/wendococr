@@ -75,9 +75,10 @@ RAPIDOCR_DET_BOX_THRESH = 0.4
 RAPIDOCR_THRESHOLD = False
 RAPIDOCR_ENHANCE = True
 
-# Resim OCR'da tablo yapisi tespiti (OpenCV cizgi tabanli).
-# Default kapali — aciksa resimde yatay/dikey cizgiler bulunup tables alani doldurulur.
-RAPIDOCR_DETECT_TABLES = False
+# Resim OCR'da çizgili tablo ızgarası (OpenCV): OCR kutuları hücreye yerleşir, her
+# tablo satırı content'te TEK satır olur (fatura kalemi bölünmez). Çizgisiz tabloda
+# devreye girmez. 0 = kapalı (eski y-gruplama).
+OCR_GRID_TABLES = int(os.environ.get("OCR_GRID_TABLES", "1"))
 
 # Tesseract (Türkçe) ayarları
 TESSERACT_PSM = "3"  # 3: auto, 6: block text

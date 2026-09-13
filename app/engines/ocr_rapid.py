@@ -16,7 +16,7 @@ from app.config import (
     RAPIDOCR_DET_LIMIT_SIDE_LEN,
     RAPIDOCR_DET_UNCLIP_RATIO,
     RAPIDOCR_DET_BOX_THRESH,
-    RAPIDOCR_DETECT_TABLES,
+    OCR_GRID_TABLES,
     RAPIDOCR_ENHANCE,
     RAPIDOCR_MIN_BOX_AREA,
     RAPIDOCR_MIN_CONFIDENCE,
@@ -199,9 +199,11 @@ def _run_rapidocr(
     image_bytes: bytes | None = None,
     image_array: np.ndarray | None = None,
     auto_rotate: bool = True,
-) -> tuple[list[tuple[list[float], str]], int, int]:
+    return_image: bool = False,
+):
     """
-    Hız odaklı RapidOCR motoru.
+    Hız odaklı RapidOCR motoru. Döner: (lines_bbox, w, h) — return_image=True ise
+    4. eleman olarak kutuların ait olduğu (yönü düzeltilmiş) görüntü de döner.
 
     auto_rotate=False: yön düzeltme atlanır. Çağıran, kutuları ORIJINAL sayfa
     koordinatına geri map'liyorsa (hybrid _ocr_region) döndürme koordinatları
@@ -231,7 +233,7 @@ def _run_rapidocr(
     img, result, w, h = _oriented_ocr(engine, img, auto_rotate)
 
     if result is None or result.boxes is None or len(result.boxes) == 0:
-        return [], w, h
+        return ([], w, h, img) if return_image else ([], w, h)
 
     # 4. Koordinatları topla + katı filtre uygula
     out = []
@@ -261,61 +263,7 @@ def _run_rapidocr(
         bbox = [float(x_min), float(y_min), float(x_max), float(y_max)]
         out.append((bbox, text))
 
-    return out, w, h
-
-def _detect_tables(img: np.ndarray, text_blocks: list[dict]) -> list[dict[str, Any]]:
-    """
-    OpenCV cizgi tabanli hafif tablo tespiti (resim OCR icin).
-    Yatay+dikey cizgilerin kesistigi bolgeleri tablo kutusu kabul eder,
-    kutu icine dusen text_block'lari satir (y) bazinda gruplayarak rows uretir.
-    Cizgi yoksa bos liste doner (cizgisiz tablo tespit etmez — yanlis pozitif onleme).
-    """
-    if img is None or img.size == 0 or not text_blocks:
-        return []
-    try:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
-        bw = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-                                   cv2.THRESH_BINARY_INV, 15, -2)
-        h, w = gray.shape[:2]
-        # Yatay ve dikey cizgi maskeleri (sayfa boyutuna olcekli kernel)
-        hk = cv2.getStructuringElement(cv2.MORPH_RECT, (max(20, w // 30), 1))
-        vk = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(20, h // 30)))
-        horiz = cv2.erode(bw, hk); horiz = cv2.dilate(horiz, hk)
-        vert = cv2.erode(bw, vk); vert = cv2.dilate(vert, vk)
-        grid = cv2.add(horiz, vert)
-        cnts, _ = cv2.findContours(grid, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        tables = []
-        for c in cnts:
-            x, y, cw, ch = cv2.boundingRect(c)
-            # Cok kucuk veya cizgi-ince bolgeleri ele (gercek tablo degil)
-            if cw < w * 0.15 or ch < h * 0.04 or cw * ch < (w * h) * 0.01:
-                continue
-            inside = [b for b in text_blocks
-                      if b["bbox"][0] >= x - 5 and b["bbox"][1] >= y - 5
-                      and b["bbox"][2] <= x + cw + 5 and b["bbox"][3] <= y + ch + 5]
-            if len(inside) < 2:
-                continue
-            # Satir bazinda grupla (y ortasi)
-            inside.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
-            rows, cur, cy = [], [], None
-            for b in inside:
-                ym = (b["bbox"][1] + b["bbox"][3]) / 2
-                if cy is None or abs(ym - cy) <= (b["bbox"][3] - b["bbox"][1]) * 0.7:
-                    cur.append(b); cy = ym if cy is None else (cy + ym) / 2
-                else:
-                    rows.append(cur); cur = [b]; cy = ym
-            if cur:
-                rows.append(cur)
-            row_texts = [[bb["text"] for bb in sorted(r, key=lambda b: b["bbox"][0])] for r in rows]
-            tables.append({
-                "rows": row_texts,
-                "bbox": [float(x), float(y), float(x + cw), float(y + ch)],
-                "cells_bbox": [[bb["bbox"] for bb in sorted(r, key=lambda b: b["bbox"][0])] for r in rows],
-            })
-        return tables
-    except Exception:
-        return []
-
+    return (out, w, h, img) if return_image else (out, w, h)
 
 def extract(
     file_path: Path | str | None,
@@ -328,25 +276,32 @@ def extract(
     """
     page_no = (page_numbers[0] + 1) if page_numbers else 1
 
-    img_for_tables = None
     if image_bytes:
-        lines_bbox, page_width, page_height = _run_rapidocr(image_bytes=image_bytes)
-        if RAPIDOCR_DETECT_TABLES:
-            nparr = np.frombuffer(image_bytes, np.uint8)
-            img_for_tables = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        lines_bbox, page_width, page_height, used_img = _run_rapidocr(image_bytes=image_bytes, return_image=True)
     elif file_path:
         file_path = Path(file_path)
         if not file_path.exists(): return []
         img = load_image(str(file_path))
-        lines_bbox, page_width, page_height = _run_rapidocr(image_array=img)
-        if RAPIDOCR_DETECT_TABLES:
-            img_for_tables = img
+        lines_bbox, page_width, page_height, used_img = _run_rapidocr(image_array=img, return_image=True)
     else:
         return []
 
     text_blocks = [{"text": t, "bbox": b} for b, t in lines_bbox]
-    content = content_from_text_blocks_with_bbox(text_blocks)
-    tables = _detect_tables(img_for_tables, text_blocks) if RAPIDOCR_DETECT_TABLES else []
+    tables: list[dict[str, Any]] = []
+    blocks_for_content = text_blocks
+    if OCR_GRID_TABLES and text_blocks and used_img is not None:
+        # Çizgili tablo ızgarası: OCR kutuları hücreye yerleşir, tablo satırı tek
+        # content satırı olur (fatura kalemi bölünmez). Izgara yoksa eski davranış.
+        try:
+            from app.utils.table_grid import apply_grid_tables, detect_grid_tables
+            grids = detect_grid_tables(used_img)
+            if grids:
+                tables, row_blocks, free_blocks = apply_grid_tables(text_blocks, grids)
+                if row_blocks:
+                    blocks_for_content = sorted(free_blocks + row_blocks, key=lambda b: (b["bbox"][1], b["bbox"][0]))
+        except Exception:
+            tables, blocks_for_content = [], text_blocks
+    content = content_from_text_blocks_with_bbox(blocks_for_content)
 
     return [{
         "page_number": page_no,
