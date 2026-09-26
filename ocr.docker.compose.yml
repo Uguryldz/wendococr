@@ -16,14 +16,18 @@ services:
     restart: unless-stopped
     # Redis dahili agda + kuyrukta hassas veri yok; pickle RCE (K1) kodda kapatildi
     # (JSON+allowlist) — parola gerekmedi.
+    # KUYRUK AYARLARI: noeviction -> bellek dolunca is SILINMEZ, API yer acilana kadar
+    # bekler. appendonly/save kapali -> belge iceriği diske yazilmaz (KVKK).
     command:
       - redis-server
       - --appendonly
-      - "yes"
+      - "no"
+      - --save
+      - ""
       - --maxmemory
       - "512mb"
       - --maxmemory-policy
-      - "allkeys-lru"
+      - "noeviction"
     volumes:
       - redis_data:/data
     healthcheck:

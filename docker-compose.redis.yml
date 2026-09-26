@@ -16,13 +16,16 @@ services:
     restart: unless-stopped
     # Parola OPSIYONEL: .env'de REDIS_PASSWORD tanimliysa --requirepass ile korur,
     # bos ise parolasiz calisir (deploy'u kirmaz). pickle RCE (K1) zaten kodda kapali.
+    # KUYRUK AYARLARI: noeviction -> bellek dolunca is SILINMEZ, API yer acilana kadar
+    # bekler (geri basinc). appendonly/save kapali -> belge iceriği diske yazilmaz (KVKK),
+    # kuyruk zaten gecici. maxmemory = kuyruk derinligi x ortalama dosya x 1.4 (base64).
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     command:
       - sh
       - -c
       - >
-        redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+        redis-server --appendonly no --save "" --maxmemory 512mb --maxmemory-policy noeviction
         $${REDIS_PASSWORD:+--requirepass "$$REDIS_PASSWORD"}
     volumes:
       - redis_data:/data

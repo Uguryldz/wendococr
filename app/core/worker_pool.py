@@ -17,6 +17,7 @@ Worker:
     python -m app.core.worker_pool
 """
 import asyncio
+import redis
 import json
 import logging
 import os
@@ -242,13 +243,30 @@ class RedisWorkerPool:
             job["file_name"] = file_name
         job_data = json.dumps(job).encode("utf-8")
 
-        self._redis.lpush(REDIS_QUEUE_NAME, job_data)
+        # GERİ BASINÇ: Redis maxmemory-policy=noeviction ile bellek dolunca LPUSH "OOM"
+        # hatası verir. İşi düşürmek yerine (veri kaybı yok) yer açılana kadar bekleyip
+        # yeniden dene; toplam süre OCR_QUEUE_TIMEOUT ile sınırlı. Sıradaki işler
+        # bitip bellek boşalınca push geçer -> istemci sadece daha geç cevap alır.
+        deadline = time.monotonic() + OCR_QUEUE_TIMEOUT
+        backoff = 0.5
+        while True:
+            try:
+                self._redis.lpush(REDIS_QUEUE_NAME, job_data)
+                break
+            except redis.exceptions.OutOfMemoryError:
+                # redis-py "OOM command not allowed..." yanıtını bu sınıfa çevirir.
+                if time.monotonic() >= deadline:
+                    self._rejected += 1
+                    raise QueueFullError("Kuyruk belleği dolu (Redis OOM), bekleme süresi aşıldı.")
+                logger.warning("Redis OOM — kuyrukta yer açılması bekleniyor (%.1fs)", backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 5.0)
 
         loop = asyncio.get_event_loop()
         try:
             result = await asyncio.wait_for(
                 loop.run_in_executor(None, self._wait_result, result_key),
-                timeout=OCR_QUEUE_TIMEOUT,
+                timeout=max(1.0, deadline - time.monotonic()),
             )
         except asyncio.TimeoutError:
             self._timed_out += 1

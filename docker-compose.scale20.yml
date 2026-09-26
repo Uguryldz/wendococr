@@ -86,10 +86,13 @@ services:
     # Tek makinedeysen REDIS_BIND'i boş bırak -> sadece localhost.
     ports:
       - "${REDIS_BIND:-127.0.0.1}:6379:6379"
-    # Parola ZORUNLU (port açık olduğu için). Kuyruk + sonuçlar için 1 GB yeter.
-    # Not: JOB_FILE_INLINE ile dosyalar payload'da -> derin kuyrukta RAM artar;
-    # 500 iş × ~2 MB ≈ 1 GB. Büyük dosyalar yoğunsa maxmemory'yi artır.
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD zorunlu}"]
+    # Parola ZORUNLU (port açık olduğu için).
+    # KUYRUK AYARLARI: noeviction -> bellek dolunca iş SİLİNMEZ, API yer açılana kadar
+    # bekler (geri basınç, OCR_QUEUE_TIMEOUT içinde). appendonly/save kapalı -> belge
+    # içeriği diske yazılmaz (KVKK), kuyruk zaten geçici.
+    # maxmemory = kuyruk derinliği × ortalama dosya × 1.4 (base64): 500 × ~2 MB ≈ 1.4 GB.
+    # Büyük dosyalar yoğunsa artır; dolunca iş kaybolmaz, sadece bekler.
+    command: ["redis-server", "--appendonly", "no", "--save", "", "--maxmemory", "2gb", "--maxmemory-policy", "noeviction", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD zorunlu}"]
     volumes:
       - redis_data:/data
     healthcheck:
