@@ -47,6 +47,8 @@ logger = logging.getLogger("wendococr.pool")
 
 WORKER_HEARTBEAT_KEY = "wendococr:workers"
 WORKER_HEARTBEAT_TTL = 30  # saniye — 30s heartbeat gelmezse ölü sayılır
+JOB_LOST_CHECK_SEC = 6     # sonuç beklerken işin hâlâ kuyrukta/işlemede olduğu bu aralıkla kontrol edilir
+JOB_RESUBMIT_MAX = 2       # kaybolan iş en fazla bu kadar yeniden gönderilir
 # Payload'a gömülü dosyanın args içindeki yer tutucusu (worker kendi yerel yoluyla değiştirir)
 _FILE_PLACEHOLDER = "__WENDOCOCR_FILE__"
 PROCESSING_META_KEY = f"{REDIS_QUEUE_NAME}:processing_meta"  # job_id -> {worker_id, started_at}
@@ -265,7 +267,7 @@ class RedisWorkerPool:
         loop = asyncio.get_event_loop()
         try:
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, self._wait_result, result_key),
+                loop.run_in_executor(None, self._wait_result, result_key, job_id, job_data),
                 timeout=max(1.0, deadline - time.monotonic()),
             )
         except asyncio.TimeoutError:
@@ -283,9 +285,16 @@ class RedisWorkerPool:
         self._processed += 1
         return result["data"]
 
-    def _wait_result(self, result_key: str) -> dict:
+    def _wait_result(self, result_key: str, job_id: str = "", job_data: bytes | None = None) -> dict:
+        """Sonucu bekler. KAYIP TESPİTİ: Redis yeniden başlarsa (kalıcılık kapalı) veya
+        kuyruk başka bir nedenle boşalırsa iş ne kuyrukta, ne işlemede, ne sonuçta
+        görünür. Bu durumda payload API belleğinde olduğu için iş YENİDEN gönderilir
+        (en fazla JOB_RESUBMIT_MAX kez) — istemci sadece gecikme görür, veri kaybolmaz."""
         import redis
         r = _redis_client()
+        processing_key = f"{REDIS_QUEUE_NAME}:processing"
+        resubmits = 0
+        last_check = time.monotonic()
         try:
             while True:
                 # redis-py 8+: sonuc henuz yokken blpop None yerine TimeoutError firlatir.
@@ -294,9 +303,29 @@ class RedisWorkerPool:
                 try:
                     raw = r.blpop(result_key, timeout=2)
                 except redis.exceptions.TimeoutError:
-                    continue
+                    raw = None
                 if raw:
                     return json.loads(raw[1])
+                if job_data is None or time.monotonic() - last_check < JOB_LOST_CHECK_SEC:
+                    continue
+                last_check = time.monotonic()
+                try:
+                    alive = (
+                        r.exists(result_key)
+                        or r.hexists(PROCESSING_META_KEY, job_id)
+                        or r.lpos(REDIS_QUEUE_NAME, job_data) is not None
+                        or r.lpos(processing_key, job_data) is not None
+                    )
+                except redis.exceptions.RedisError:
+                    continue  # bağlantı sorunu: retry katmanı halleder, kayıp sayma
+                if alive:
+                    continue
+                if resubmits >= JOB_RESUBMIT_MAX:
+                    raise RuntimeError(f"İş kuyruktan kayboldu ve {JOB_RESUBMIT_MAX} kez yeniden gönderildi: {job_id}")
+                resubmits += 1
+                logger.warning("İş kuyrukta yok (Redis yeniden mi başladı?) — yeniden gönderiliyor (%d/%d) job=%s",
+                               resubmits, JOB_RESUBMIT_MAX, job_id)
+                r.lpush(REDIS_QUEUE_NAME, job_data)
         finally:
             r.close()
 
