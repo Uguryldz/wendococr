@@ -106,7 +106,7 @@ wendococr/
 │   ├── api/           # routes: /v1/*, /health
 │   ├── core/           # router.py (Brain – karar motoru)
 │   ├── engines/        # pdf_text, pdf_table, ocr_rapid, ocr_tesseract, ocr_txtimage, ocr_imagetable
-│   ├── utils/          # image_preprocess, pdf_convert, page_range
+│   ├── utils/          # image_preprocess, page_range, table_grid, text_layout
 │   ├── config.py
 │   ├── main.py
 │   └── schemas.py

@@ -506,9 +506,6 @@ class QueueFullError(Exception):
 class QueueTimeoutError(Exception):
     pass
 
-def _worker_wrapper(fn, args, kwargs):
-    return fn(*args, **kwargs)
-
 _pool = None
 
 def get_pool() -> LocalWorkerPool | RedisWorkerPool:

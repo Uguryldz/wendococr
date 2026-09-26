@@ -68,32 +68,6 @@ def _get_rapid_engine():
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
-def _enhance_for_turkish_rapid(gray: np.ndarray) -> np.ndarray:
-    """
-    Türkçe diakritiklerini koruyacak iyileştirme.
-    - Küçük metinlerde upscale (diacritikler daha görünür)
-    - CLAHE ile lokal kontrast artırma
-    - Unsharp mask ile diacritik keskinleştirme (ö/ü/ç/ş/ğ/İ noktaları)
-    """
-    if gray is None or gray.size == 0:
-        return gray
-    h, w = gray.shape[:2]
-    out = gray
-    # Küçük görüntüleri büyüt — diacritik noktaları daha net olur
-    if max(h, w) < 1400:
-        out = cv2.resize(out, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
-    try:
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        out = clahe.apply(out)
-    except Exception:
-        pass
-    # Unsharp mask: diacritik detaylarını vurgula
-    blurred = cv2.GaussianBlur(out, (0, 0), sigmaX=2.0)
-    out = cv2.addWeighted(out, 1.4, blurred, -0.4, 0)
-    out = np.clip(out, 0, 255).astype(np.uint8)
-    return out
-
-
 def _clean_text(text: str) -> str:
     """OCR metnini katı filtre için normalize eder."""
     text = _WHITESPACE_RE.sub(" ", (text or "").strip())

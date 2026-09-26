@@ -227,26 +227,6 @@ def clean_page_text(text: str) -> list[str]:
     return lines
 
 
-def parse_kv_pairs(lines: list[str]) -> dict:
-    """Ardışık satırlardan etiket-değer çiftleri çıkar."""
-    result = {}
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if i + 1 < len(lines):
-            next_line = lines[i + 1]
-            if re.match(r'^[\d.,/\-\s]+$', next_line) or next_line == '-':
-                result[line] = next_line
-                i += 2
-                continue
-        i += 1
-    return result
-
-
-# ═══════════════════════════════════════════════════════════
-# BÖLÜM ÇIKARMA FONKSİYONLARI
-# ═══════════════════════════════════════════════════════════
-
 def extract_rapor_ozeti(doc) -> dict:
     """Sayfa 1 - Rapor özet bilgileri."""
     lines = clean_page_text(doc[0].get_text())

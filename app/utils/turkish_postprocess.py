@@ -237,12 +237,3 @@ def postprocess_turkish(text: str) -> str:
     return text
 
 
-def postprocess_turkish_blocks(text_blocks: list[dict]) -> list[dict]:
-    """
-    text_blocks listesindeki her bloğun 'text' alanına Türkçe post-processing uygular.
-    Orijinal listeyi değiştirir ve döndürür.
-    """
-    for block in text_blocks:
-        if "text" in block and block["text"]:
-            block["text"] = postprocess_turkish(block["text"])
-    return text_blocks

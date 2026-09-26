@@ -80,13 +80,6 @@ RAPIDOCR_ENHANCE = True
 # devreye girmez. 0 = kapalı (eski y-gruplama).
 OCR_GRID_TABLES = int(os.environ.get("OCR_GRID_TABLES", "1"))
 
-# Tesseract (Türkçe) ayarları
-TESSERACT_PSM = "3"  # 3: auto, 6: block text
-TESSERACT_DESKEW = False
-TESSERACT_THRESHOLD = False
-TESSERACT_ENHANCE = True
-TESSERACT_USER_DEFINED_DPI = "300"
-
 # Logging
 LOG_LEVEL = "INFO"
 DEBUG = False
@@ -147,12 +140,10 @@ AUTO_ROTATE_MIN_SIDE = int(os.environ.get("AUTO_ROTATE_MIN_SIDE", "1000"))
 # ama güveni MIN_CONF altındaysa: sayfa hem 0° hem önerilen açıda OCR'lanır, RapidOCR güven
 # skoru toplamı bu MARJIN kadar yüksek olan açı seçilir. Sadece RapidOCR (auto/fatura/
 # pdfimagev5) yolunda; fişlerin geçtiği yol orası. Emin/r0 durumunda tek geçiş (hız aynı).
-AUTO_ROTATE_VERIFY = os.environ.get("AUTO_ROTATE_VERIFY", "1") == "1"
 # Doğrulama OCR ile korunduğu için burada boyut eşiği DÜŞÜK (küçük fiş fotoğrafları geçsin).
 AUTO_ROTATE_VERIFY_MIN_SIDE = int(os.environ.get("AUTO_ROTATE_VERIFY_MIN_SIDE", "400"))
 # OSD yönüne GÜVEN; sadece 0° skoru önerilen açıyı bu marj kadar AŞARSA 0°'de kal (override).
 # OSD yönü fişlerde bile doğru çıkıyor; ters mantık (dönmüş kazanmalı) ince farklarda kaçırıyordu.
-AUTO_ROTATE_VERIFY_MARGIN = float(os.environ.get("AUTO_ROTATE_VERIFY_MARGIN", "0.04"))  # %4
 # OSD ÇÖKERSE 4-yön OCR oylaması: OSD düşük çözünürlüklü fişte hata verip yönü hiç
 # bulamayabiliyor (ör. 1080x506 fiş). Bu durumda 0/90/180/270 dördü de OCR'lanır, en çok
 # gerçek kelime üreten seçilir (0°'ye küçük öncelik). 4 OCR maliyeti SADECE OSD çökünce.
