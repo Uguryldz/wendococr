@@ -202,31 +202,42 @@ def _assign_words_to_cells(
     if best is not None and sum(1 for c in best if c) >= 3:
         template = best
 
-    def _row_cells_for(r_idx: int) -> list[list[float] | None]:
-        cells = cells_bbox[r_idx]
-        real = [c for c in cells if c]
-        if template is not None and len(real) <= 1 and real and tbl_w > 0 and (real[0][2] - real[0][0]) >= 0.9 * tbl_w:
-            rng = row_ranges[r_idx]
-            return [[c[0], rng[0], c[2], rng[1]] if c else None for c in template]
-        return cells
-
+    # 1. geçiş: her kelimenin satırı (tam hücre isabeti, yoksa satır y-aralığı)
+    row_of: dict[int, int] = {}
     for w in words:
         cx, cy = w["_cx"], w["_cy"]
-        # 1) Tam hücre isabeti (satır-birleşik uzun hücreler için doğru satırı verir)
-        r_hit = None
-        for r_idx, cells in enumerate(cells_bbox):
-            if any(c is not None and _in_bbox(cx, cy, c) for c in cells):
-                r_hit = r_idx
-                break
-        # 2) Hücre yoksa satır y-aralığına göre
+        r_hit = next((r for r, cells in enumerate(cells_bbox)
+                      if any(c is not None and _in_bbox(cx, cy, c) for c in cells)), None)
         if r_hit is None:
-            for r_idx, rng in enumerate(row_ranges):
-                if rng and rng[0] - 0.5 <= cy <= rng[1] + 0.5:
-                    r_hit = r_idx
-                    break
+            r_hit = next((r for r, rng in enumerate(row_ranges)
+                          if rng and rng[0] - 0.5 <= cy <= rng[1] + 0.5), None)
+        if r_hit is not None:
+            row_of[id(w)] = r_hit
+
+    # Şablon uygulanacak satırlar: tek tam-genişlik hücre VE kelimeler şablon sütunlarına
+    # düzgün oturuyor (hiçbir kelime sütun sınırını kesmiyor, en az 2 sütun dolu).
+    # Böylece "Not: ..." gibi gerçek birleşik satırlar (düz cümle) bölünmez.
+    eff_cells_of: dict[int, list[list[float] | None]] = {}
+    if template is not None and tbl_w > 0:
+        for r_idx, cells in enumerate(cells_bbox):
+            real = [c for c in cells if c]
+            if len(real) != 1 or (real[0][2] - real[0][0]) < 0.9 * tbl_w:
+                continue
+            rng = row_ranges[r_idx]
+            tcells = [[c[0], rng[0], c[2], rng[1]] if c else None for c in template]
+            treal = [c for c in tcells if c]
+            rw = [w for w in words if row_of.get(id(w)) == r_idx]
+            if not rw or any(len(_split_word_at_cells(w, treal)) > 1 for w in rw):
+                continue
+            cols = {next((k for k, c in enumerate(treal) if c[0] - 0.5 <= w["_cx"] <= c[2] + 0.5), -1) for w in rw}
+            if len(cols - {-1}) >= 2:
+                eff_cells_of[r_idx] = tcells
+
+    for w in words:
+        r_hit = row_of.get(id(w))
         if r_hit is None:
             continue
-        eff_cells = _row_cells_for(r_hit)
+        eff_cells = eff_cells_of.get(r_hit, cells_bbox[r_hit])
         row_cells = [c for c in eff_cells if c]
         pieces = _split_word_at_cells(w, row_cells) if row_cells else [w]
         if len(pieces) > 1:
@@ -350,16 +361,22 @@ def _extract_tables(
     return tables_data, row_blocks, free_words, data_bboxes
 
 
-def extract_page_tables(page) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[list[float]]]:
+def extract_page_tables(page) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[list[float]], list[str]]:
     """Diğer motorlar (imagetexthybrid) için: pdfplumber sayfasındaki veri tablolarını
-    satır bloklarına çevirir. Döner: (tables_data, row_blocks, veri tablosu bbox'ları).
-    Koordinatlar PDF nokta birimi, sol-üst orijin (fitz ile aynı)."""
+    satır bloklarına çevirir. Döner: (tables_data, row_blocks, veri tablosu bbox'ları,
+    satır bloklarına yerleşen kelimelerin bbox'ları). Koordinatlar döndürülmüş sayfa uzayı.
+    /Rotate'li sayfada pdfplumber kelime/tablo çıkarımı güvenilmez (yan glifler) -> boş."""
     try:
+        if getattr(page, "rotation", 0) % 360:
+            return [], [], [], []
         words = _page_words(page)
-        tables_data, row_blocks, _free, data_bboxes = _extract_tables(page, words)
-        return tables_data, row_blocks, data_bboxes
+        tables_data, row_blocks, free, data_bboxes = _extract_tables(page, words)
+        free_ids = {id(w) for w in free}
+        placed = [[float(w["x0"]), float(w["top"]), float(w["x1"]), float(w["bottom"])]
+                  for w in words if id(w) not in free_ids]
+        return tables_data, row_blocks, data_bboxes, placed
     except Exception:
-        return [], [], []
+        return [], [], [], []
 
 
 # --------------------------------------------------------------------------- giriş
@@ -383,6 +400,12 @@ def extract(
                 if i < 0 or i >= len(pdf.pages):
                     continue
                 page = pdf.pages[i]
+                if getattr(page, "rotation", 0) % 360:
+                    # /Rotate'li sayfa: pdfplumber yan glifleri kelimeye bölemiyor, tabloları
+                    # yanlış buluyor. Metni fitz'ten (pdf_text) al, tablo üretme.
+                    from app.engines.pdf_text import extract as pdf_text_extract
+                    results.extend(pdf_text_extract(file_path, page_numbers=[i]))
+                    continue
                 page_bbox = page.bbox
                 page_width = page_bbox[2] - page_bbox[0] if page_bbox else None
                 page_height = page_bbox[3] - page_bbox[1] if page_bbox else None

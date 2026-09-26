@@ -54,6 +54,11 @@ class PageResult(BaseModel):
     )
     page_width: float | None = Field(default=None, description="Sayfa genişliği (koordinat birimi)")
     page_height: float | None = Field(default=None, description="Sayfa yüksekliği (koordinat birimi)")
+    deskew_angle: float = Field(
+        default=0.0,
+        description="OCR öncesi uygulanan eğiklik düzeltme açısı (derece). 0 değilse text_blocks/tables "
+                    "koordinatları bu açıyla döndürülmüş görüntüye aittir; orijinal görsele çizerken geri döndürün.",
+    )
 
 
 class ExtractResponse(BaseModel):
@@ -88,6 +93,7 @@ def page_result_from_engine(
     page_width: float | None = None,
     page_height: float | None = None,
     images: list[Any] | None = None,
+    deskew_angle: float = 0.0,
 ) -> PageResult:
     """Engine'den gelen ham çıktıyı PageResult'a çevirir (koordinatlar dahil)."""
     if tables is None:
@@ -157,4 +163,5 @@ def page_result_from_engine(
         images=normalized_images,
         page_width=page_width,
         page_height=page_height,
+        deskew_angle=float(deskew_angle or 0.0),
     )

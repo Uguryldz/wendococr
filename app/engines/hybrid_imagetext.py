@@ -69,6 +69,16 @@ def _norm(text: str) -> str:
 
 # ── 1. Dijital metin ────────────────────────────────────────────────────────
 
+def _rotated(page, b) -> list[float]:
+    """fitz metin/görsel koordinatları döndürülMEMİŞ sayfa uzayındadır; page.rect,
+    get_pixmap(clip) ve pdfplumber döndürülmüş uzayı kullanır. /Rotate'li sayfada hizala."""
+    r = fitz.Rect(b)
+    if page.rotation:
+        r = r * page.rotation_matrix
+        r.normalize()
+    return [float(r.x0), float(r.y0), float(r.x1), float(r.y1)]
+
+
 def _native_lines(page) -> list[dict[str, Any]]:
     """Sayfadaki dijital metin satırları: [{"text", "bbox", "source"}]."""
     lines: list[dict[str, Any]] = []
@@ -79,12 +89,7 @@ def _native_lines(page) -> list[dict[str, Any]]:
             text = "".join(s.get("text", "") for s in line.get("spans", [])).replace("\xad", "-").strip()
             if not text:
                 continue
-            b = line["bbox"]
-            lines.append({
-                "text": text,
-                "bbox": [float(b[0]), float(b[1]), float(b[2]), float(b[3])],
-                "source": "native",
-            })
+            lines.append({"text": text, "bbox": _rotated(page, line["bbox"]), "source": "native"})
     return lines
 
 
@@ -95,7 +100,7 @@ def _image_rects(page) -> list[fitz.Rect]:
     rects: list[fitz.Rect] = []
     for info in page.get_image_info(hashes=False):
         try:
-            r = fitz.Rect(info["bbox"]) & page.rect
+            r = fitz.Rect(_rotated(page, info["bbox"])) & page.rect
         except Exception:
             continue
         if r.is_empty or r.width < 5 or r.height < 5:
@@ -185,9 +190,9 @@ def _ocr_region(page, clip: fitz.Rect, grid: bool = False):
     try:
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip)
     except Exception:
-        return ([], []) if grid else []
+        return ([], [], 0.0) if grid else []
     if pix.width == 0 or pix.height == 0:
-        return ([], []) if grid else []
+        return ([], [], 0.0) if grid else []
 
     img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
     if pix.n == 1:
@@ -210,6 +215,15 @@ def _ocr_region(page, clip: fitz.Rect, grid: bool = False):
     # auto_rotate=False: kutular aşağıda ORIJINAL sayfa koordinatına map'leniyor;
     # motor içinde döndürme koordinatları kaydırırdı. Hybrid belgeleri (dijital metin +
     # antet) zaten dik gelir; saf taranmış/rescan sayfaların yönü ayrı ele alınır.
+    deskew_angle = 0.0
+    if grid:
+        # Taranmış/rescan sayfa: cetvel çizgilerinden küçük açı düzeltmesi (pdfimagev5 ile
+        # aynı davranış). Kutular döndürülmüş görüntüye aittir; açı deskew_angle ile döner.
+        try:
+            from app.utils.table_grid import deskew_by_lines
+            img, deskew_angle = deskew_by_lines(img)
+        except Exception:
+            deskew_angle = 0.0
     lines_bbox, _, _ = _run_rapidocr(image_array=img, auto_rotate=False)
 
     def _to_page(bbox):
@@ -239,7 +253,7 @@ def _ocr_region(page, clip: fitz.Rect, grid: bool = False):
     for r in raw:
         out.append({"text": r["text"], "bbox": _to_page(r["bbox"]), "source": "ocr"})
     if grid:
-        return out + row_blocks, tables
+        return out + row_blocks, tables, deskew_angle
     return out
 
 
@@ -318,17 +332,34 @@ def _apply_native_tables(native: list[dict[str, Any]], plumber_page) -> tuple[li
         return native, []
     try:
         from app.engines.pdf_table import extract_page_tables
-        tables, row_blocks, data_bboxes = extract_page_tables(plumber_page)
+        tables, row_blocks, data_bboxes, placed = extract_page_tables(plumber_page)
     except Exception:
         return native, []
     if not row_blocks:
         return native, tables
+    # Dijital satır yalnızca (a) veri tablosu kutusundaysa VE (b) genişliğinin en az yarısı
+    # satır bloklarına yerleşen kelime kutularıyla örtüşüyorsa çıkarılır (geometrik kapsama;
+    # fitz/pdfplumber kelime bölme farkları etkilemez). Kutuda olup hücreye yerleşmeyen
+    # metin (satır aralığı dışı not vb.) serbest metin olarak kalır -> metin kaybı yok.
     kept = []
     for l in native:
-        cx = (l["bbox"][0] + l["bbox"][2]) / 2
-        cy = (l["bbox"][1] + l["bbox"][3]) / 2
-        if any(b[0] - 1 <= cx <= b[2] + 1 and b[1] - 1 <= cy <= b[3] + 1 for b in data_bboxes):
-            continue
+        x0, y0, x1, y1 = l["bbox"]
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        in_table = any(b[0] - 1 <= cx <= b[2] + 1 and b[1] - 1 <= cy <= b[3] + 1 for b in data_bboxes)
+        if in_table and x1 > x0:
+            covered = 0.0
+            contained = False
+            for px0, py0, px1, py1 in placed:
+                if py1 <= y0 or py0 >= y1:
+                    continue
+                if min(py1, y1) - max(py0, y0) < 0.5 * min(y1 - y0, py1 - py0):
+                    continue
+                covered += max(0.0, min(px1, x1) - max(px0, x0))
+                contained = contained or (px0 >= x0 - 1 and px1 <= x1 + 1)
+            # Kısa satırlarda (sıra no gibi) fitz kutusu glife göre geniş olabilir; içinde
+            # yerleşmiş kelime varsa bu satır zaten tabloda demektir.
+            if covered >= 0.5 * (x1 - x0) or (contained and len(l["text"].split()) <= 2):
+                continue
         kept.append(l)
     kept.extend({"text": r["text"], "bbox": r["bbox"], "source": "table"} for r in row_blocks)
     return kept, tables
@@ -338,15 +369,16 @@ def _process_page(page, plumber_page=None) -> dict[str, Any]:
     native = _native_lines(page)
     native_chars = sum(len(l["text"]) for l in native)
     tables: list[dict[str, Any]] = []
+    deskew_angle = 0.0
 
     if native_chars < HYBRID_MIN_NATIVE_CHARS:
         # Saf taranmış sayfa: tüm sayfayı OCR'la (çizgili tablo varsa satır bazlı)
-        lines, tables = _ocr_region(page, fitz.Rect(page.rect), grid=True)
+        lines, tables, deskew_angle = _ocr_region(page, fitz.Rect(page.rect), grid=True)
         mode = "ocr_full"
     elif _text_layer_untrustworthy(page, native):
         # Metin katmanı VAR ama başka bir aracın bozuk OCR'ı (tarih "2l l0'7 /2026" gibi).
         # Katmanı tümden yok say, sayfayı kendimiz OCR'la — kendi motorumuz belirgin daha doğru.
-        lines, tables = _ocr_region(page, fitz.Rect(page.rect), grid=True)
+        lines, tables, deskew_angle = _ocr_region(page, fitz.Rect(page.rect), grid=True)
         mode = "ocr_rescan"
     else:
         native, tables = _apply_native_tables(native, plumber_page)
@@ -374,6 +406,7 @@ def _process_page(page, plumber_page=None) -> dict[str, Any]:
         "text_blocks": text_blocks,
         "page_width": float(page.rect.width),
         "page_height": float(page.rect.height),
+        "deskew_angle": float(deskew_angle),
         "page_mode": mode,
     }
 

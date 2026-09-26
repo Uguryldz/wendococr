@@ -129,6 +129,7 @@ async def _process_upload(
             p["page_number"], p.get("content", ""), p.get("tables"),
             text_blocks=p.get("text_blocks"),
             page_width=p.get("page_width"), page_height=p.get("page_height"),
+            deskew_angle=p.get("deskew_angle", 0.0),
             # page_number 1-indexli; visual_objects 0-indexli page_index ile saklanir
             images=visual_objects_by_page.get((p["page_number"] - 1), []),
         )

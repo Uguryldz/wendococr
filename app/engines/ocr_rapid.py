@@ -260,12 +260,14 @@ def extract(
         return []
     if img is None:
         return []
+    deskew_angle = 0.0
     if OCR_GRID_TABLES:
         # Küçük açı düzeltmesi (cetvel çizgilerinden): eğik tarama/fotoda hem OCR hem
         # tablo ızgarası düzelir. Çizgisiz belgede (fiş) açı bulunamaz -> dokunulmaz.
+        # Açı sayfaya deskew_angle olarak yazılır: kutular döndürülmüş görüntüye aittir.
         try:
             from app.utils.table_grid import deskew_by_lines
-            img, _ = deskew_by_lines(img)
+            img, deskew_angle = deskew_by_lines(img)
         except Exception:
             pass
     lines_bbox, page_width, page_height, used_img = _run_rapidocr(image_array=img, return_image=True)
@@ -294,4 +296,5 @@ def extract(
         "text_blocks": text_blocks,
         "page_width": float(page_width),
         "page_height": float(page_height),
+        "deskew_angle": float(deskew_angle),
     }]

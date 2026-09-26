@@ -64,6 +64,12 @@ def extract(
                             bboxes.append((float(b[0]), float(b[1]), float(b[2]), float(b[3])))
                     if bboxes:
                         x0, y0, x1, y1 = _bbox_union(bboxes)
+                        if page.rotation:
+                            # fitz metin koordinatları döndürülMEMİŞ uzaydadır; page.rect,
+                            # get_pixmap ve pdfplumber döndürülmüş uzayı kullanır -> hizala.
+                            r = fitz.Rect(x0, y0, x1, y1) * page.rotation_matrix
+                            r.normalize()
+                            x0, y0, x1, y1 = r.x0, r.y0, r.x1, r.y1
                         text_blocks.append({
                             "text": line_text,
                             "bbox": [x0, y0, x1, y1],
