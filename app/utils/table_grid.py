@@ -241,6 +241,7 @@ def apply_grid_tables(
             r_blocks.append({
                 "text": CELL_SEP.join(row),
                 "bbox": [bx0, band["y0"], bx1, band["y1"]],
+                "source": "table",
             })
 
         # Güvenlik: en az 2 satırda 2+ dolu hücre yoksa tablo değil (tek satırlık sahte ızgara);

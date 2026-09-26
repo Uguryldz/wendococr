@@ -33,7 +33,10 @@ def content_from_text_blocks_with_bbox(
             continue
         items.append((y0, x0, x1, text))
         h = y1 - y0
-        if h > 0:
+        # Tablo satırı blokları (source="table") bir hücre yüksekliğindedir; medyana
+        # girerlerse y-eşiği şişer ve tablo dışı komşu satırlar birleşir (Findeks
+        # altbilgisi ölçümü: eşik 8.4pt, satır aralığı 8.0pt). Eşik metin satırlarından.
+        if h > 0 and blk.get("source") != "table":
             heights.append(h)
 
     if not items:

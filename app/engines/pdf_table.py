@@ -344,7 +344,7 @@ def _extract_tables(
             if not line.strip("| "):
                 continue
             rb = _union([c for c in (cells_bbox[r_idx] if r_idx < len(cells_bbox) else []) if c]) or tbl_bbox
-            row_blocks.append({"text": line, "bbox": rb})
+            row_blocks.append({"text": line, "bbox": rb, "source": "table"})
 
     free_words = [w for w in words if id(w) not in consumed]
     return tables_data, row_blocks, free_words, data_bboxes
