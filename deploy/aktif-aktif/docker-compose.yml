@@ -1,0 +1,63 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# wendococr — AKTİF-AKTİF (DC1 + DC2), ORTAK VALKEY/REDIS, TOPLAM 20 WORKER
+#
+#   DNS (dc1 IP, dc2 IP)
+#     ├─ DC1: API :8099 + 10 worker ─┐
+#     └─ DC2: API :8099 + 10 worker ─┴─> ortak Valkey (REDIS_URL)
+#
+# Her iki DC'de AYNI dosya, farklı env:
+#   DC1:  docker compose --env-file dc1.env up -d
+#   DC2:  docker compose --env-file dc2.env up -d
+#
+# Tek ortak kuyruk: hangi DC'ye istek gelirse gelsin 20 worker'ın boştaki ilki alır.
+# Dosya Valkey payload'ında taşınır (JOB_FILE_INLINE=1) -> DC'ler arası ortak disk yok.
+# Belgeler yalnız RAM'de (tmpfs + Valkey), diske yazılmaz (KVKK).
+# ═══════════════════════════════════════════════════════════════════════════
+x-common: &common
+  image: uguryldz/wendococr:${WENDOCOCR_VERSION:-v1.1.5}
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp/wendococr:size=1g,mode=0700,uid=10001,gid=10001
+
+services:
+  wendococr:
+    <<: *common
+    container_name: wendococr
+    ports:
+      - "${API_BIND:-0.0.0.0}:8099:8099"
+    environment:
+      REDIS_URL: "${REDIS_URL:?REDIS_URL zorunlu}"
+      UPLOAD_DIR: /tmp/wendococr
+      JOB_FILE_INLINE: "1"
+      OCR_QUEUE_MAX_SIZE: "${OCR_QUEUE_MAX_SIZE:-500}"
+      OCR_QUEUE_TIMEOUT: "${OCR_QUEUE_TIMEOUT:-600}"
+      REDIS_RESULT_TTL: "${REDIS_RESULT_TTL:-900}"
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPUS:-2.0}"
+          memory: "${API_MEM:-2G}"
+
+  wendococr-worker:
+    <<: *common
+    command: ["bash", "entrypoint.sh", "worker"]
+    environment:
+      REDIS_URL: "${REDIS_URL:?REDIS_URL zorunlu}"
+      UPLOAD_DIR: /tmp/wendococr
+      OCR_MAX_WORKERS: "1"
+    # İmajın HTTP healthcheck'i worker'da anlamsız; canlılık Valkey heartbeat'iyle izlenir.
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 30s
+    deploy:
+      replicas: ${WORKER_REPLICAS:-10}
+      resources:
+        limits:
+          # Kota ONNX thread sayısını belirler (cpu_limit.py): 1.5 -> 1 thread/worker,
+          # 10 worker 8 çekirdeği aşırı abonelik olmadan doldurur.
+          cpus: "${WORKER_CPUS:-1.5}"
+          memory: "${WORKER_MEM:-1500M}"
