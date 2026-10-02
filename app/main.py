@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.staticfiles import StaticFiles
 
 from app.api import router as api_router
 from app.config import CORS_ORIGINS, DEBUG, LOG_LEVEL, OCR_MAX_WORKERS
@@ -102,11 +103,19 @@ color:#8a8a8a;opacity:.75;transition:opacity .2s;}
 """
 
 
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui():
+    # Swagger UI dosyaları imajın içinden (app/static/swagger, swagger-ui-dist 5.33.1) sunulur:
+    # prod ağı internete çıkamadığında CDN'den yüklenemiyor, /docs boş kalıyordu.
     html = get_swagger_ui_html(
         openapi_url=app.openapi_url,
         title=app.title + " — API",
+        swagger_js_url="/static/swagger/swagger-ui-bundle.js",
+        swagger_css_url="/static/swagger/swagger-ui.css",
+        swagger_favicon_url="data:,",
     )
     body = html.body.decode("utf-8").replace("</body>", _SIGNATURE_HTML + "</body>")
     return HTMLResponse(body)
