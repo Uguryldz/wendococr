@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from app.config import (
     ALLOWED_EXTENSIONS,
@@ -181,7 +181,15 @@ def _check_upload_dir() -> bool:
 @router.get("/health", tags=["Sistem"], summary="Sağlık kontrolü")
 def health():
     """Servisin ayakta olduğunu ve tüm motor bağımlılıklarını doğrular."""
-    pool = get_pool()
+    try:
+        pool = get_pool()
+    except Exception as e:
+        # Kuyruk (Valkey/Redis) ulaşılamaz: traceback yerine 503 + sebep (pool sonra tekrar denenir).
+        logger.error("Kuyruk bağlantısı yok: %s", e)
+        return JSONResponse(status_code=503, content={
+            "status": "error",
+            "workers": {"mode": "redis", "connected": False, "error": f"{type(e).__name__}: {e}"},
+        })
     return {
         "status": "ok",
         "motorlar": {

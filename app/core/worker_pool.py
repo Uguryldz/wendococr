@@ -36,6 +36,7 @@ from app.config import (
     OCR_QUEUE_TIMEOUT,
     REDIS_URL,
     REDIS_QUEUE_NAME,
+    REDIS_KEY_PREFIX,
     REDIS_RESULT_TTL,
     JOB_FILE_INLINE,
     REAPER_INTERVAL_SEC,
@@ -45,7 +46,7 @@ from app.config import (
 
 logger = logging.getLogger("wendococr.pool")
 
-WORKER_HEARTBEAT_KEY = "wendococr:workers"
+WORKER_HEARTBEAT_KEY = f"{REDIS_KEY_PREFIX}:workers"
 WORKER_HEARTBEAT_TTL = 30  # saniye — 30s heartbeat gelmezse ölü sayılır
 JOB_LOST_CHECK_SEC = 6     # sonuç beklerken işin hâlâ kuyrukta/işlemede olduğu bu aralıkla kontrol edilir
 JOB_RESUBMIT_MAX = 2       # kaybolan iş en fazla bu kadar yeniden gönderilir
@@ -114,6 +115,9 @@ def _redis_client():
         retry=retry,
         retry_on_error=[RedisConnectionError, BusyLoadingError],
         health_check_interval=30,
+        # CLIENT SETINFO gönderme: ACL'de gereksiz yetki/red logu üretir, işlevi yok.
+        lib_name=None,
+        lib_version=None,
     )
 
 
@@ -217,7 +221,7 @@ class RedisWorkerPool:
             raise QueueFullError(f"Kuyruk dolu ({queue_len}/{OCR_QUEUE_MAX_SIZE}).")
 
         job_id = str(uuid.uuid4())
-        result_key = f"wendococr:result:{job_id}"
+        result_key = f"{REDIS_KEY_PREFIX}:result:{job_id}"
         # GUVENLIK (K1): fonksiyon allowlist anahtariyla referans verilir, JSON tasinir.
         # args icindeki Path -> str (JSON-uyumlu); process_document Path|str kabul eder.
         # ÇOK-MAKİNE (JOB_FILE_INLINE): ilk dosya argümanını base64 ile payload'a göm.
@@ -250,9 +254,13 @@ class RedisWorkerPool:
         # yeniden dene; toplam süre OCR_QUEUE_TIMEOUT ile sınırlı. Sıradaki işler
         # bitip bellek boşalınca push geçer -> istemci sadece daha geç cevap alır.
         deadline = time.monotonic() + OCR_QUEUE_TIMEOUT
+        pending_key = f"{REDIS_KEY_PREFIX}:pending:{job_id}"
         backoff = 0.5
         while True:
             try:
+                # pending işareti işle birlikte yaşar: Valkey veri kaybederse (restart,
+                # kalıcılık kapalı) o da kaybolur -> kayıp tespiti tek EXISTS ile yapılır.
+                self._redis.set(pending_key, b"1", ex=OCR_QUEUE_TIMEOUT + 120)
                 self._redis.lpush(REDIS_QUEUE_NAME, job_data)
                 break
             except redis.exceptions.OutOfMemoryError:
@@ -267,7 +275,7 @@ class RedisWorkerPool:
         loop = asyncio.get_event_loop()
         try:
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, self._wait_result, result_key, job_id, job_data),
+                loop.run_in_executor(None, self._wait_result, result_key, pending_key, job_id, job_data),
                 timeout=max(1.0, deadline - time.monotonic()),
             )
         except asyncio.TimeoutError:
@@ -278,6 +286,10 @@ class RedisWorkerPool:
             logger.warning("Timeout (%ss) job=%s — sonuç Redis'te TTL ile bekliyor", OCR_QUEUE_TIMEOUT, job_id)
             raise QueueTimeoutError(f"Timeout ({OCR_QUEUE_TIMEOUT}s): {job_id}")
 
+        try:
+            self._redis.delete(pending_key)
+        except Exception:
+            pass  # TTL ile zaten düşer
         if result.get("error"):
             self._failed += 1
             raise RuntimeError(result["error"])
@@ -285,21 +297,18 @@ class RedisWorkerPool:
         self._processed += 1
         return result["data"]
 
-    def _wait_result(self, result_key: str, job_id: str = "", job_data: bytes | None = None) -> dict:
-        """Sonucu bekler. KAYIP TESPİTİ: Redis yeniden başlarsa (kalıcılık kapalı) veya
-        kuyruk başka bir nedenle boşalırsa iş ne kuyrukta, ne işlemede, ne sonuçta
-        görünür. Bu durumda payload API belleğinde olduğu için iş YENİDEN gönderilir
-        (en fazla JOB_RESUBMIT_MAX kez) — istemci sadece gecikme görür, veri kaybolmaz."""
+    def _wait_result(self, result_key: str, pending_key: str = "", job_id: str = "", job_data: bytes | None = None) -> dict:
+        """Sonucu bekler. KAYIP TESPİTİ: Valkey veri kaybederse (restart, kalıcılık kapalı)
+        işle birlikte yazılan pending işareti de kaybolur. Sonuç da yoksa payload API
+        belleğinde olduğundan iş yeniden gönderilir (en fazla JOB_RESUBMIT_MAX kez).
+        Kontrol tek EXISTS (birkaç byte) — DC'ler arası yüksek gecikmede de ucuz."""
         import redis
         r = _redis_client()
-        processing_key = f"{REDIS_QUEUE_NAME}:processing"
         resubmits = 0
         last_check = time.monotonic()
         try:
             while True:
                 # redis-py 8+: sonuc henuz yokken blpop None yerine TimeoutError firlatir.
-                # Bu "hazir degil" demek — beklemeye devam et (ust katmanda
-                # OCR_QUEUE_TIMEOUT zaten genel sureyi sinirliyor).
                 try:
                     raw = r.blpop(result_key, timeout=2)
                 except redis.exceptions.TimeoutError:
@@ -310,21 +319,16 @@ class RedisWorkerPool:
                     continue
                 last_check = time.monotonic()
                 try:
-                    alive = (
-                        r.exists(result_key)
-                        or r.hexists(PROCESSING_META_KEY, job_id)
-                        or r.lpos(REDIS_QUEUE_NAME, job_data) is not None
-                        or r.lpos(processing_key, job_data) is not None
-                    )
+                    if r.exists(pending_key, result_key):
+                        continue
                 except redis.exceptions.RedisError:
                     continue  # bağlantı sorunu: retry katmanı halleder, kayıp sayma
-                if alive:
-                    continue
                 if resubmits >= JOB_RESUBMIT_MAX:
                     raise RuntimeError(f"İş kuyruktan kayboldu ve {JOB_RESUBMIT_MAX} kez yeniden gönderildi: {job_id}")
                 resubmits += 1
-                logger.warning("İş kuyrukta yok (Redis yeniden mi başladı?) — yeniden gönderiliyor (%d/%d) job=%s",
+                logger.warning("İş kuyrukta yok (Valkey yeniden mi başladı?) — yeniden gönderiliyor (%d/%d) job=%s",
                                resubmits, JOB_RESUBMIT_MAX, job_id)
+                r.set(pending_key, b"1", ex=OCR_QUEUE_TIMEOUT + 120)
                 r.lpush(REDIS_QUEUE_NAME, job_data)
         finally:
             r.close()
@@ -480,7 +484,7 @@ def run_worker():
 
             # redis-py 8+: bos kuyrukta blocking pop None dondurmez, TimeoutError firlatir.
             try:
-                raw = r.brpoplpush(REDIS_QUEUE_NAME, processing_key, timeout=5)
+                raw = r.blmove(REDIS_QUEUE_NAME, processing_key, 5, src="RIGHT", dest="LEFT")
             except redis_lib.exceptions.TimeoutError:
                 continue
             if raw is None:
@@ -489,7 +493,7 @@ def run_worker():
             # GUVENLIK (K1): JSON parse + allowlist.
             job = json.loads(raw)
             job_id = job["job_id"]
-            result_key = f"wendococr:result:{job_id}"
+            result_key = f"{REDIS_KEY_PREFIX}:result:{job_id}"
             # Sahiplik kaydı: reaper hangi worker'ın işi olduğunu buradan bilir.
             r.hset(PROCESSING_META_KEY, job_id, json.dumps({"worker_id": worker_id, "started_at": time.time()}))
 

@@ -9,7 +9,11 @@ OCR_QUEUE_TIMEOUT = int(os.environ.get("OCR_QUEUE_TIMEOUT", "120"))  # saniye
 
 # Redis (dağıtık mod)
 REDIS_URL = os.environ.get("REDIS_URL", "")  # boş = local mod (Redis yok)
-REDIS_QUEUE_NAME = os.environ.get("REDIS_QUEUE_NAME", "wendococr:jobs")
+# Tüm Valkey/Redis anahtarları bu önekten türer (kuyruk, heartbeat, sonuç, pending).
+# Aynı veritabanını paylaşan ortamları ayırır; ACL ile "~<önek>:*" kısıtı yapılabilir.
+# Cluster modunda hash tag kullan: REDIS_KEY_PREFIX={wendococr} -> tüm anahtarlar aynı slot.
+REDIS_KEY_PREFIX = os.environ.get("REDIS_KEY_PREFIX", "wendococr")
+REDIS_QUEUE_NAME = os.environ.get("REDIS_QUEUE_NAME", f"{REDIS_KEY_PREFIX}:jobs")
 REDIS_RESULT_TTL = int(os.environ.get("REDIS_RESULT_TTL", "300"))  # sonuç saklama süresi (sn)
 
 # ── Redis modu güvenilirlik (çok-makine + çökme kurtarma) ──

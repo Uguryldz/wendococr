@@ -14,7 +14,7 @@
 # Belgeler yalnız RAM'de (tmpfs + Valkey), diske yazılmaz (KVKK).
 # ═══════════════════════════════════════════════════════════════════════════
 x-common: &common
-  image: uguryldz/wendococr:${WENDOCOCR_VERSION:-v1.1.5}
+  image: uguryldz/wendococr:${WENDOCOCR_VERSION:-v1.1.6}
   restart: unless-stopped
   security_opt:
     - no-new-privileges:true
@@ -36,6 +36,7 @@ services:
       OCR_QUEUE_MAX_SIZE: "${OCR_QUEUE_MAX_SIZE:-500}"
       OCR_QUEUE_TIMEOUT: "${OCR_QUEUE_TIMEOUT:-600}"
       REDIS_RESULT_TTL: "${REDIS_RESULT_TTL:-900}"
+      REDIS_KEY_PREFIX: "${REDIS_KEY_PREFIX:-wendococr}"
     deploy:
       resources:
         limits:
@@ -49,6 +50,7 @@ services:
       REDIS_URL: "${REDIS_URL:?REDIS_URL zorunlu}"
       UPLOAD_DIR: /tmp/wendococr
       OCR_MAX_WORKERS: "1"
+      REDIS_KEY_PREFIX: "${REDIS_KEY_PREFIX:-wendococr}"
     # İmajın HTTP healthcheck'i worker'da anlamsız; canlılık Valkey heartbeat'iyle izlenir.
     healthcheck:
       test: ["CMD", "true"]
