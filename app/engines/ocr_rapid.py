@@ -10,7 +10,7 @@ from typing import Any
 from rapidocr import RapidOCR
 import re
 
-from app.utils.text_layout import content_from_text_blocks_with_bbox
+from app.utils.text_layout import compose_content, content_from_text_blocks_with_bbox
 
 from app.config import (
     RAPIDOCR_DET_LIMIT_SIDE_LEN,
@@ -317,7 +317,7 @@ def extract(
                     blocks_for_content = sorted(free_blocks + row_blocks, key=lambda b: (b["bbox"][1], b["bbox"][0]))
         except Exception:
             tables, blocks_for_content = [], text_blocks
-    content = content_from_text_blocks_with_bbox(blocks_for_content)
+    content = compose_content(blocks_for_content, tables)
 
     return [{
         "page_number": page_no,

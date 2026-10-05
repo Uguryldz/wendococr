@@ -104,3 +104,76 @@ def content_from_text_blocks_with_bbox(
         lines.append("".join(parts).rstrip())
 
     return "\n".join(lines)
+
+
+def _bb(b) -> list[float] | None:
+    if isinstance(b, (list, tuple)) and len(b) >= 4:
+        return [float(b[0]), float(b[1]), float(b[2]), float(b[3])]
+    if isinstance(b, dict):
+        return [float(b.get("x0", 0)), float(b.get("y0", b.get("top", 0))),
+                float(b.get("x1", 0)), float(b.get("y1", b.get("bottom", 0)))]
+    return None
+
+
+def compose_content(text_blocks: list[dict], tables: list[dict] | None) -> str:
+    """Tablo-farkında okuma sırası.
+
+    Yalnız y-gruplama yan yana iki kutuyu (sol "Müşteri", sağ "e-Arşiv") satır satır
+    birbirine karıştırıyordu. Burada dikeyde örtüşen tablolar bir "küme" olur; küme
+    içindeki her tablo (ve tablonun yanındaki serbest metin) BÜTÜN olarak, soldan sağa
+    yazılır. Kümeler arası serbest metin eskisi gibi y-gruplamayla okunur.
+    Tablo satırı yoksa davranış content_from_text_blocks_with_bbox ile birebir aynıdır.
+    """
+    tbs = [b for b in (_bb(t.get("bbox")) for t in (tables or [])) if b]
+    rows_by_t: dict[int, list[dict]] = {}
+    free: list[dict] = []
+    for blk in text_blocks:
+        b = _bb(blk.get("bbox"))
+        if blk.get("source") == "table" and b:
+            cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+            hit = next((i for i, t in enumerate(tbs) if t[0] - 2 <= cx <= t[2] + 2 and t[1] - 2 <= cy <= t[3] + 2), None)
+            if hit is not None:
+                rows_by_t.setdefault(hit, []).append(blk)
+                continue
+        free.append(blk)
+    if not rows_by_t:
+        return content_from_text_blocks_with_bbox(text_blocks)
+
+    # Dikeyde örtüşen tabloları kümele
+    order = sorted(rows_by_t, key=lambda i: tbs[i][1])
+    clusters: list[dict] = []
+    for i in order:
+        t = tbs[i]
+        if clusters and t[1] < clusters[-1]["y1"] - 2:
+            clusters[-1]["tables"].append(i)
+            clusters[-1]["y1"] = max(clusters[-1]["y1"], t[3])
+        else:
+            clusters.append({"y0": t[1], "y1": t[3], "tables": [i], "free": []})
+
+    # Serbest metni küme içine (yanındaki metin) veya kümeler arası boşluğa dağıt
+    gaps: list[list[dict]] = [[] for _ in range(len(clusters) + 1)]
+    for blk in free:
+        b = _bb(blk.get("bbox"))
+        cy = (b[1] + b[3]) / 2 if b else 0.0
+        k = next((n for n, c in enumerate(clusters) if c["y0"] <= cy <= c["y1"]), None)
+        if k is not None:
+            clusters[k]["free"].append(blk)
+        else:
+            gaps[sum(1 for c in clusters if c["y1"] < cy)].append(blk)
+
+    def _rows_text(i: int) -> str:
+        rows = sorted(rows_by_t[i], key=lambda r: (_bb(r["bbox"])[1], _bb(r["bbox"])[0]))
+        return "\n".join((r.get("text") or "").strip() for r in rows if (r.get("text") or "").strip())
+
+    parts: list[str] = []
+    for n, c in enumerate(clusters):
+        if gaps[n]:
+            parts.append(content_from_text_blocks_with_bbox(gaps[n]))
+        units = [(tbs[i][0], _rows_text(i)) for i in c["tables"]]
+        if c["free"]:
+            fx = min((_bb(b["bbox"]) or [0])[0] for b in c["free"])
+            units.append((fx, content_from_text_blocks_with_bbox(c["free"])))
+        parts.extend(text for _x, text in sorted(units, key=lambda u: u[0]) if text)
+    if gaps[-1]:
+        parts.append(content_from_text_blocks_with_bbox(gaps[-1]))
+    return "\n".join(p for p in parts if p)

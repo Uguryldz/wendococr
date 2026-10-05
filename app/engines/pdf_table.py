@@ -23,7 +23,7 @@ from typing import Any
 
 import pdfplumber
 
-from app.utils.text_layout import content_from_text_blocks_with_bbox
+from app.utils.text_layout import compose_content
 
 _SOFT_HYPHEN = "\xad"
 CELL_SEP = " | "
@@ -418,7 +418,7 @@ def extract(
                 text_blocks.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
 
                 if text_blocks:
-                    content = content_from_text_blocks_with_bbox(text_blocks)
+                    content = compose_content(text_blocks, tables_data)
                 else:
                     content = _norm_keep_lines(page.extract_text() or "")
 

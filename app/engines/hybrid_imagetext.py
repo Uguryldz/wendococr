@@ -57,7 +57,7 @@ from app.config import (
     HYBRID_TEXT_PAD,
     RAPIDOCR_DET_LIMIT_SIDE_LEN,
 )
-from app.utils.text_layout import content_from_text_blocks_with_bbox
+from app.utils.text_layout import compose_content
 
 _NORM_RE = re.compile(r"[^0-9a-zçğıöşü]+")
 
@@ -401,7 +401,7 @@ def _process_page(page, plumber_page=None) -> dict[str, Any]:
     lines.sort(key=lambda l: (round(l["bbox"][1], 1), l["bbox"][0]))
     text_blocks = [{"text": l["text"], "bbox": l["bbox"], "source": l["source"]} for l in lines]
     return {
-        "content": content_from_text_blocks_with_bbox(text_blocks),
+        "content": compose_content(text_blocks, tables),
         "tables": tables,
         "text_blocks": text_blocks,
         "page_width": float(page.rect.width),
