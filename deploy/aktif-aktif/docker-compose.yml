@@ -14,7 +14,7 @@
 # Belgeler yalnız RAM'de (tmpfs + Valkey), diske yazılmaz (KVKK).
 # ═══════════════════════════════════════════════════════════════════════════
 x-common: &common
-  image: uguryldz/wendococr:${WENDOCOCR_VERSION:-v1.1.6}
+  image: uguryldz/wendococr:${WENDOCOCR_VERSION:-v1.1.7}
   restart: unless-stopped
   security_opt:
     - no-new-privileges:true
