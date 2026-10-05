@@ -169,6 +169,34 @@ def _oriented_ocr(engine, img: np.ndarray, auto_rotate: bool):
     return img, r, w, h
 
 
+
+# Satır yönü sınıflandırıcısı kısa sayısal kutuları 180° sanıp ters okuyabiliyor:
+# ters dönen virgül kesme işaretine benzer ("%20,00" -> "00'0%", "3.000,00" -> "300'00E").
+# Global kapatmak iki yüzlü kimlik gibi gerçekten ters bölümleri bozar (ölçüldü), bu yüzden
+# yalnız bu iz görülen kutu çevrilmeden yeniden okunur.
+_REVERSED_NUM_RE = re.compile(r"\d'\d|\d%$")
+
+
+def _reread_unflipped(engine, img, box, text, score):
+    """Kutuyu yön sınıflandırıcısı olmadan yeniden tanır; iz kaybolursa yeni metni döner."""
+    try:
+        pts = np.array(box)
+        x0, y0 = np.maximum(np.min(pts, axis=0).astype(int) - 2, 0)
+        x1, y1 = np.max(pts, axis=0).astype(int) + 2
+        crop = img[y0:y1, x0:x1]
+        if crop.size == 0:
+            return text, score
+        # Doğrudan tanıyıcı: engine(..., use_det=False) çağrısı motorun ayarını kalıcı
+        # değiştiriyor (sonraki çağrılar algılamasız kalıyor), bu yüzden kullanılmaz.
+        from rapidocr.ch_ppocr_rec import TextRecInput
+        r = engine.text_rec(TextRecInput(img=[crop]))
+        if r and r.txts and r.txts[0] and not _REVERSED_NUM_RE.search(r.txts[0]):
+            return r.txts[0], float(r.scores[0]) if r.scores is not None else score
+    except Exception:
+        pass
+    return text, score
+
+
 def _run_rapidocr(
     image_bytes: bytes | None = None,
     image_array: np.ndarray | None = None,
@@ -213,6 +241,8 @@ def _run_rapidocr(
     out = []
     for box, text, score in zip(result.boxes, result.txts, result.scores):
         score = float(score) if score is not None else None
+        if text and _REVERSED_NUM_RE.search(text):
+            text, score = _reread_unflipped(engine, img, box, text, score)
 
         text = _clean_text(text)
         if not text:

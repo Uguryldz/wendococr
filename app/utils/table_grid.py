@@ -92,9 +92,14 @@ def detect_grid_tables(img: np.ndarray) -> list[dict[str, Any]]:
                 xs.insert(0, float(x))
             if xs[-1] < x + cw - MIN_BAND_PX:
                 xs.append(float(x + cw))
-            if len(ys) < 3 or len(xs) < 3:
-                # < 2 satır bandı veya < 2 sütun: tablo değil (çerçeve/çizgi)
+            if len(ys) < 3:
+                # < 2 satır bandı: tablo değil (çerçeve/çizgi)
                 continue
+            if len(xs) < 3:
+                # Sütun çizgisiz tablo (yalnız yatay satır çizgileri + çerçeve; CamScanner
+                # e-Arşiv): tek sütun olarak işaretlenir, hücreler apply_grid_tables'ta
+                # bant içi x-örtüşmesiyle kurulur.
+                xs = [float(x), float(x + cw)]
             interior_xs = xs[1:-1]
             bands = []
             for y0, y1 in zip(ys[:-1], ys[1:]):
@@ -153,6 +158,37 @@ def _center(b: list[float]) -> tuple[float, float]:
     return (b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0
 
 
+
+def _rows_by_x_overlap(bands, buckets, med_h, bx0, bx1):
+    """Sütun çizgisiz tablo: bant içindeki kutular x aralıkları örtüşüyorsa (aynı hücrenin
+    alt satırları: "Xiaomi 15 Ultra..." / "Chrome") tek hücrede birleşir; hücreler soldan
+    sağa " | " ile dizilir. Sütunlar satırlar arasında hizalanmaz (boş hücre yazılmaz)."""
+    rows, cells_bbox, r_blocks = [], [], []
+    gap = 0.5 * med_h
+    for r_idx, band in enumerate(bands):
+        ws = sorted(buckets.get((r_idx, 0), []), key=lambda b: b["bbox"][0])
+        if not ws:
+            continue
+        clusters: list[list[dict]] = []
+        right = None
+        for b in ws:
+            if clusters and b["bbox"][0] <= right + gap:
+                clusters[-1].append(b)
+                right = max(right, b["bbox"][2])
+            else:
+                clusters.append([b])
+                right = b["bbox"][2]
+        row, row_cells = [], []
+        for cl in clusters:
+            cl.sort(key=lambda b: (round(b["bbox"][1] / max(4.0, 0.6 * med_h)), b["bbox"][0]))
+            row.append(" ".join(b["text"].strip() for b in cl if b["text"].strip()))
+            row_cells.append([min(b["bbox"][0] for b in cl), min(b["bbox"][1] for b in cl),
+                              max(b["bbox"][2] for b in cl), max(b["bbox"][3] for b in cl)])
+        rows.append(row)
+        cells_bbox.append(row_cells)
+        r_blocks.append({"text": CELL_SEP.join(row), "bbox": [bx0, band["y0"], bx1, band["y1"]], "source": "table"})
+    return rows, cells_bbox, r_blocks
+
 def apply_grid_tables(
     text_blocks: list[dict[str, Any]],
     grids: list[dict[str, Any]],
@@ -208,6 +244,18 @@ def apply_grid_tables(
 
         heights = sorted(b["bbox"][3] - b["bbox"][1] for b in inside)
         med_h = heights[len(heights) // 2] if heights else 20.0
+
+        if n_cols == 1:
+            # Sütun çizgisi yok: her bandı x-örtüşmesiyle hücrelere böl.
+            rows, cells_bbox, r_blocks = _rows_by_x_overlap(bands, buckets, med_h, bx0, bx1)
+            if len(rows) < 2 or sum(1 for r in rows if sum(1 for c in r if c) >= 2) < 2:
+                continue
+            for ws in buckets.values():
+                for b in ws:
+                    consumed.add(id(b))
+            tables_data.append({"rows": rows, "bbox": [bx0, by0, bx1, by1], "cells_bbox": cells_bbox})
+            row_blocks.extend(r_blocks)
+            continue
 
         rows: list[list[str]] = []
         cells_bbox: list[list[list[float] | None]] = []
