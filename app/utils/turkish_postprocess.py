@@ -193,6 +193,74 @@ def restore_turkish_diacritics(text: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
+# 3b. BELGE SÖZLÜĞÜ — OCR KARIŞMA-DUYARLI DÜZELTME
+# ═══════════════════════════════════════════════════════════
+# Fatura / resmi yazı / dekontta sabit tekrarlanan kelimeler. OCR modeli i/l/ı ve
+# ş/s/$ gibi harfleri karıştırır ("Cumhurlyet", "Müsterl", "$TI"). Kelime ve sözlük
+# girdisi aynı "iskelete" indirgenir (karışan harfler tek harfe); iskelet BİREBİR
+# eşleşirse sözlükteki doğru yazım konur. Sözlük dışı kelimeye (isim, kod) dokunulmaz.
+_DOC_VOCAB = """
+tedarikçi müşteri alıcı satıcı özelleştirme senaryo cumhuriyet türkiye şti ltd tic san
+bilişim hizmetleri hizmet malzeme açıklaması açıklama açıklamalar miktar birim fiyat fiyatı
+iskonto oranı oran tutarı tutar toplam matrahı matrah hesaplanan vergiler vergi hariç dahil
+ödenecek yalnız genel irsaliye yerine geçer geçerlidir sicil mersis dairesi müdürlüğü
+fatura tarihi saati tipi satış adet şarj başlığı akıllı telefon kodu sıra
+mahallesi mahalle caddesi cadde sokak sokağı bulvarı apartmanı daire kat
+düzenlenme düzenleme ödeme şekli koşulu notu sipariş teslim tarih hesabı şube şubesi
+gönderen alıcının işlem müdürlüğü başsavcılığı mahkemesi müdürlüğüne konu ilgi sayı
+""".split()
+
+_SKELETON_TABLE = str.maketrans({
+    "ı": "i", "l": "i", "1": "i", "|": "i", "!": "i",
+    "ş": "s", "$": "s", "ğ": "g", "ç": "c", "ö": "o", "ü": "u", "0": "o",
+})
+
+
+def _tr_lower(w: str) -> str:
+    return w.replace("I", "ı").replace("İ", "i").lower()
+
+
+def _tr_upper(w: str) -> str:
+    return w.replace("i", "İ").replace("ı", "I").upper()
+
+
+def _skeleton(w: str) -> str:
+    return _tr_lower(w).translate(_SKELETON_TABLE)
+
+
+_VOCAB_BY_SKELETON: dict[str, str] = {}
+for _v in _DOC_VOCAB:
+    _VOCAB_BY_SKELETON.setdefault(_skeleton(_v), _v)
+
+_VOCAB_TOKEN_RE = re.compile(r"[A-Za-zÇĞİÖŞÜçğıöşü$|!]*[A-Za-zÇĞİÖŞÜçğıöşü][A-Za-zÇĞİÖŞÜçğıöşü$|!1]*")
+
+
+def fix_with_vocab(text: str) -> str:
+    """Sözlükteki belge kelimelerini OCR karışmalarına rağmen doğru yazıma çevirir."""
+    def _sub(m):
+        word = m.group(0)
+        if len(word) < 3:
+            return word
+        # E-posta / web adresi parçası ise dokunma (satis@firma.com, www.sicil.gov.tr)
+        src, a, b = m.string, m.start(), m.end()
+        prev = src[a - 1] if a else " "
+        nxt = src[b] if b < len(src) else " "
+        nxt2 = src[b + 1] if b + 1 < len(src) else " "
+        if prev in "@._-/" or nxt in "@_/" or (nxt in ".-" and nxt2.isalnum()):
+            return word
+        right = _VOCAB_BY_SKELETON.get(_skeleton(word))
+        if right is None or _tr_lower(word) == right:
+            return word
+        letters = [c for c in word if c.isalpha()]
+        if letters and all(c.isupper() for c in letters):
+            return _tr_upper(right)
+        if word[0].isupper():
+            return _tr_upper(right[0]) + right[1:]
+        return right
+    return _VOCAB_TOKEN_RE.sub(_sub, text)
+
+
+# ═══════════════════════════════════════════════════════════
 # 4. OCR ARTEFAKT TEMİZLEME
 # ═══════════════════════════════════════════════════════════
 
@@ -234,6 +302,7 @@ def postprocess_turkish(text: str) -> str:
     text = fix_ocr_chars(text)
     text = clean_ocr_artifacts(text)
     text = restore_turkish_diacritics(text)
+    text = fix_with_vocab(text)
     return text
 
 
