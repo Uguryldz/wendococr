@@ -413,6 +413,15 @@ def _process_page(page, plumber_page=None) -> dict[str, Any]:
 
 # ── 6. Motor arayüzü ───────────────────────────────────────────────────────
 
+def _has_pdf_magic(path: Path) -> bool:
+    """Dosya PDF imzasıyla (%PDF-) mı başlıyor? Uzantıdan bağımsız tip tespiti."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(1024).lstrip().startswith(b"%PDF-")
+    except OSError:
+        return False
+
+
 def extract(
     file_path: Path | str | None,
     page_numbers: list[int] | None = None,
@@ -426,8 +435,9 @@ def extract(
     if not path or not path.exists():
         return []
 
-    # PDF olmayan girdi (jpg/png/tiff...): hibrit ayrımı anlamsız, doğrudan OCR
-    if path.suffix.lower() != ".pdf":
+    # PDF olmayan girdi (jpg/png/tiff...): hibrit ayrımı anlamsız, doğrudan OCR.
+    # Uzantı güvenilmez olabilir (kesilmiş/eksik ad) -> PDF imzasına da bak.
+    if path.suffix.lower() != ".pdf" and not _has_pdf_magic(path):
         from app.engines.ocr_rapid import extract as rapid_extract
         return rapid_extract(path, page_numbers=page_numbers)
 

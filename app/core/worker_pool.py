@@ -213,6 +213,9 @@ class RedisWorkerPool:
         self._rejected = 0
         self._timed_out = 0
         logger.info("Redis mod (main): %s", REDIS_URL)
+        if not JOB_FILE_INLINE:
+            logger.warning("JOB_FILE_INLINE=0: dosya yolu gönderilir; worker'lar API ile ortak "
+                           "UPLOAD_DIR görmüyorsa (aktif-aktif) iş 'dosya bulunamadı' ile düşer.")
 
     async def submit(self, fn: Callable, *args, **kwargs) -> Any:
         queue_len = self._redis.llen(REDIS_QUEUE_NAME)
@@ -506,10 +509,22 @@ def run_worker():
                 # ÇOK-MAKİNE: payload'daki dosyayı KENDİ tmpfs'ine yaz, yer tutucuyu değiştir.
                 if job.get("file_b64"):
                     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-                    safe = "".join(c for c in str(job.get("file_name") or "file")[:80] if c.isalnum() or c in "._-") or "file"
-                    local_file = UPLOAD_DIR / f"{job_id}_{safe}"
+                    # Uzantı KORUNMALI: motorlar PDF/resim ayrımını uzantıyla yapar. Eskiden ad
+                    # [:80] kesiliyordu; API adı "<orijinal>_<ns>.pdf" (uzun e-Arşiv adlarında 90+
+                    # karakter) -> ".pdf" düşüyor, hybrid PDF'i resim sanıp boş dönüyordu.
+                    fname = Path(str(job.get("file_name") or "file"))
+                    suffix = "".join(c for c in fname.suffix[:10] if c.isalnum() or c == ".")
+                    stem = "".join(c for c in fname.stem[:60] if c.isalnum() or c in "._-") or "file"
+                    local_file = UPLOAD_DIR / f"{job_id}_{stem}{suffix}"
                     local_file.write_bytes(base64.b64decode(job["file_b64"]))
                     args = [str(local_file) if a == _FILE_PLACEHOLDER else a for a in args]
+                elif args and isinstance(args[0], str) and not Path(args[0]).exists():
+                    # Payload'da dosya yok ve yol bu makinede yok: API JOB_FILE_INLINE=0 ya da
+                    # inline desteklemeyen eski sürüm (< v1.1.4). Ortak klasör yoksa işlenemez.
+                    raise FileNotFoundError(
+                        f"Dosya payload'da yok ve yol bu worker'da bulunamadı ({Path(args[0]).name}). "
+                        "API sürümünü/JOB_FILE_INLINE ayarını kontrol edin."
+                    )
 
                 fn = _resolve_allowed(job["fn_key"])  # allowlist disi -> ValueError
                 result_data = fn(*args, **job.get("kwargs", {}))

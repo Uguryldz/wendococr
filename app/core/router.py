@@ -105,7 +105,12 @@ def process_document(
 
     path = Path(file_path)
     if not path.exists():
-        return [], ""
+        # Sessizce [] dönmek istemciye 200 + boş veri olarak gidiyordu (aktif-aktif'te
+        # dosya worker'a ulaşmadığında 0.0s'de "tamamlandı"). Hata ver ki 500 dönsün.
+        raise FileNotFoundError(
+            f"İşlenecek dosya bulunamadı: {path.name}. Çok-makine kurulumda API ve "
+            "worker aynı sürümde (>= v1.1.4) ve JOB_FILE_INLINE=1 olmalı."
+        )
 
     # Lazy import: sadece kullanılan motor yüklenir
     if mode == "pdftext":
