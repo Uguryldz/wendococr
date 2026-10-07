@@ -23,7 +23,7 @@
 # ═══════════════════════════════════════════════════════════════════════════
 services:
   wendococr-worker:
-    image: uguryldz/wendococr:v1.1.8
+    image: uguryldz/wendococr:v1.1.9
     restart: unless-stopped
     command: ["bash", "entrypoint.sh", "worker"]
     environment:
