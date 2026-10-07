@@ -199,12 +199,14 @@ def _run_icr_tesseract(
         best_out: list[tuple[list[float], str]] = []
         best_conf = -1.0
         try:
+            best_psm_score = -1.0
             for psm_val in psm_candidates:
                 local_out, avg_conf = run_with_psm(psm_val)
-                better = avg_conf > best_conf
-                if avg_conf < 0 and best_conf < 0:
-                    better = len(local_out) > len(best_out)
-                if better:
+                # Güven × token sayısı: yalnız güvene bakınca tek bir yüksek güvenli "="
+                # tam sayfa metni yeniyordu (15453.pdf -> 1 karakter). Varyant seçimiyle aynı ölçüt.
+                psm_score = avg_conf * len(local_out) if avg_conf > 0 else len(local_out)
+                if psm_score > best_psm_score:
+                    best_psm_score = psm_score
                     best_out, best_conf = local_out, avg_conf
         except Exception:
             pass
