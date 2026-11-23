@@ -8,7 +8,12 @@ OCR_QUEUE_MAX_SIZE = int(os.environ.get("OCR_QUEUE_MAX_SIZE", "20"))
 OCR_QUEUE_TIMEOUT = int(os.environ.get("OCR_QUEUE_TIMEOUT", "120"))  # saniye
 
 # Redis (dağıtık mod)
-REDIS_URL = os.environ.get("REDIS_URL", "")  # boş = local mod (Redis yok)
+REDIS_URL = os.environ.get("REDIS_URL", "")
+# Aktif-aktif: bu düğümün adı (DC1, DC2...) ve diğer düğümlerin API adresleri (virgülle).
+# /docs köşesindeki küme rozeti ve /cluster bunları kullanır; boşsa tek düğüm gösterilir.
+DC_NAME = os.environ.get("DC_NAME", "").strip()
+# Biçim: "DC2=http://10.0.2.10:8099" (isimli) veya "http://10.0.2.10:8099"; virgülle birden fazla.
+PEER_URLS = [u.strip() for u in os.environ.get("PEER_URLS", "").split(",") if u.strip()]  # boş = local mod (Redis yok)
 # Tüm Valkey/Redis anahtarları bu önekten türer (kuyruk, heartbeat, sonuç, pending).
 # Aynı veritabanını paylaşan ortamları ayırır; ACL ile "~<önek>:*" kısıtı yapılabilir.
 # Cluster modunda hash tag kullan: REDIS_KEY_PREFIX={wendococr} -> tüm anahtarlar aynı slot.

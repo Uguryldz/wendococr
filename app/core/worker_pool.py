@@ -37,6 +37,7 @@ from app.config import (
     REDIS_URL,
     REDIS_QUEUE_NAME,
     REDIS_KEY_PREFIX,
+    DC_NAME,
     REDIS_RESULT_TTL,
     JOB_FILE_INLINE,
     REAPER_INTERVAL_SEC,
@@ -343,15 +344,21 @@ class RedisWorkerPool:
             # Aktif worker sayısı (heartbeat)
             worker_keys = self._redis.hgetall(WORKER_HEARTBEAT_KEY)
             now = time.time()
-            alive_workers = sum(
-                1 for ts in worker_keys.values()
-                if now - float(ts) < WORKER_HEARTBEAT_TTL
-            )
+            alive_workers = 0
+            by_dc: dict[str, int] = {}
+            for wid, ts in worker_keys.items():
+                if now - float(ts) >= WORKER_HEARTBEAT_TTL:
+                    continue
+                alive_workers += 1
+                host = (wid.decode() if isinstance(wid, bytes) else wid).split("@", 1)[-1]
+                dc = host.split("/", 1)[0] if "/" in host else "?"
+                by_dc[dc] = by_dc.get(dc, 0) + 1
             connected = True
         except Exception:
             queue_len = -1
             processing = -1
             alive_workers = 0
+            by_dc = {}
             connected = False
 
         return {
@@ -359,6 +366,7 @@ class RedisWorkerPool:
             "redis": REDIS_URL.split("@")[-1] if "@" in REDIS_URL else REDIS_URL,
             "connected": connected,
             "workers_alive": alive_workers,
+            "workers_by_dc": by_dc,
             "queue_pending": queue_len,
             "queue_processing": processing,
             "queue_max": OCR_QUEUE_MAX_SIZE,
@@ -450,7 +458,7 @@ def run_worker():
 
     # BENZERSİZ worker_id: container'da pid hep 1, --network host'ta hostname aynı ->
     # "1@host" çakışır; reaper ölü worker'ı canlı sanır, işini geri almazdı. UUID eki şart.
-    worker_id = f"{os.getpid()}@{os.uname().nodename}:{uuid.uuid4().hex[:8]}"
+    worker_id = f"{os.getpid()}@{DC_NAME + '/' if DC_NAME else ''}{os.uname().nodename}:{uuid.uuid4().hex[:8]}"
     processing_key = f"{REDIS_QUEUE_NAME}:processing"
     running = True
     processed = 0

@@ -8,6 +8,8 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from app.config import (
+    DC_NAME,
+    PEER_URLS,
     ALLOWED_EXTENSIONS,
     ALLOWED_IMAGE_TYPES,
     ALLOWED_PDF_TYPE,
@@ -178,6 +180,50 @@ def _check_upload_dir() -> bool:
         return False
 
 
+def _node_name() -> str:
+    import socket
+    return DC_NAME or socket.gethostname()
+
+
+def _probe_peer(spec: str) -> dict:
+    """Diğer düğümün /health'ine 2 sn içinde ulaşılıyor mu? (stdlib, ek bağımlılık yok)
+    spec: "DC2=http://host:8099" veya "http://host:8099". İsim, düğüm kapalıyken de gösterilir."""
+    import json as _json
+    import urllib.request
+    name, _, url = spec.partition("=") if "=" in spec.split("//")[0] else ("", "", spec)
+    url = url.rstrip("/")
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(f"{url}/health", timeout=2) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        w = data.get("workers") or {}
+        return {"url": url, "dc": data.get("dc") or name or url, "ok": data.get("status") == "ok",
+                "latency_ms": round((time.monotonic() - t0) * 1000), "queue_connected": w.get("connected")}
+    except Exception as e:
+        return {"url": url, "dc": name or url.split("//")[-1].split(":")[0], "ok": False,
+                "latency_ms": None, "error": f"{type(e).__name__}: {str(e)[:80]}"}
+
+
+@router.get("/cluster", tags=["Sistem"], summary="Aktif-aktif küme durumu (bu düğüm + diğer DC'ler)")
+async def cluster():
+    """Bu düğüm, ortak kuyruk, DC bazında canlı worker sayısı ve diğer DC'lerin API erişimi.
+    Diğer DC adresleri PEER_URLS ile verilir; /docs köşesindeki rozet bunu gösterir."""
+    try:
+        status = get_pool().status()
+    except Exception as e:
+        status = {"mode": "redis", "connected": False, "error": f"{type(e).__name__}: {e}"}
+    if status.get("mode") == "local":
+        status["workers_by_dc"] = {_node_name(): status.get("workers_total", 0)}
+    peers = await asyncio.gather(*(asyncio.to_thread(_probe_peer, u) for u in PEER_URLS))
+    return {
+        "node": _node_name(),
+        "mode": "aktif-aktif" if PEER_URLS else "tek-düğüm",
+        "queue": {k: status.get(k) for k in ("mode", "connected", "queue_pending", "queue_processing", "workers_alive")},
+        "workers_by_dc": status.get("workers_by_dc", {}),
+        "peers": list(peers),
+    }
+
+
 @router.get("/health", tags=["Sistem"], summary="Sağlık kontrolü")
 def health():
     """Servisin ayakta olduğunu ve tüm motor bağımlılıklarını doğrular."""
@@ -192,6 +238,7 @@ def health():
         })
     return {
         "status": "ok",
+        "dc": _node_name(),
         "motorlar": {
             "tesseract_tur": _check_tesseract(),
             "rapidocr": _check_rapidocr(),

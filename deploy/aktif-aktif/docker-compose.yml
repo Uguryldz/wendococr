@@ -37,6 +37,8 @@ services:
       OCR_QUEUE_TIMEOUT: "${OCR_QUEUE_TIMEOUT:-600}"
       REDIS_RESULT_TTL: "${REDIS_RESULT_TTL:-900}"
       REDIS_KEY_PREFIX: "${REDIS_KEY_PREFIX:-wendococr}"
+      DC_NAME: "${DC_NAME:-}"
+      PEER_URLS: "${PEER_URLS:-}"
     deploy:
       resources:
         limits:
@@ -51,6 +53,7 @@ services:
       UPLOAD_DIR: /tmp/wendococr
       OCR_MAX_WORKERS: "1"
       REDIS_KEY_PREFIX: "${REDIS_KEY_PREFIX:-wendococr}"
+      DC_NAME: "${DC_NAME:-}"
     # İmajın HTTP healthcheck'i worker'da anlamsız; canlılık Valkey heartbeat'iyle izlenir.
     healthcheck:
       test: ["CMD", "true"]

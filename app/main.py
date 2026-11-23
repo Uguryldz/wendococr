@@ -99,6 +99,43 @@ color:#8a8a8a;opacity:.75;transition:opacity .2s;}
 #wendococr-sign a{color:#5b6b7b;text-decoration:none;}
 #wendococr-sign a:hover{text-decoration:underline;}
 </style>
+<style>
+#ww-cluster{position:fixed;top:12px;right:16px;z-index:9999;display:flex;gap:6px;align-items:center;
+font:600 12px/1 -apple-system,Segoe UI,Roboto,sans-serif;color:#3b4151;background:#fff;
+border:1px solid #d8dde6;border-radius:999px;padding:6px 10px;box-shadow:0 1px 4px rgba(0,0,0,.08);cursor:default}
+#ww-cluster .ttl{color:#6b7280;font-weight:700;letter-spacing:.02em;margin-right:2px}
+#ww-cluster .dc{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;background:#f3f4f6}
+#ww-cluster .dot{width:8px;height:8px;border-radius:50%;background:#9ca3af}
+#ww-cluster .ok .dot{background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.15)}
+#ww-cluster .warn .dot{background:#d97706;box-shadow:0 0 0 3px rgba(217,119,6,.15)}
+#ww-cluster .down .dot{background:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.15)}
+#ww-cluster .down{color:#b91c1c}
+#ww-cluster .q{color:#6b7280;font-weight:500}
+</style>
+<div id="ww-cluster" title="Küme durumu yükleniyor..."><span class="ttl">…</span></div>
+<script>
+(function(){
+  var el=document.getElementById("ww-cluster");
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+  function chip(name,cls,label,tip){return '<span class="dc '+cls+'" title="'+esc(tip)+'"><span class="dot"></span>'+esc(name)+' '+esc(label)+'</span>';}
+  function draw(d){
+    var q=d.queue||{}, by=d.workers_by_dc||{}, html='<span class="ttl">'+(d.mode==="aktif-aktif"?"AKTİF-AKTİF":"TEK DÜĞÜM")+'</span>';
+    var selfW=by[d.node]!=null?by[d.node]:(q.workers_alive||0);
+    var selfCls=q.connected===false?"down":(selfW>0?"ok":"warn");
+    html+=chip(d.node,selfCls,(q.connected===false?"kuyruk yok":selfW+" worker"),"Bu düğüm · kuyruk "+(q.connected?"bağlı":"YOK")+" · bekleyen "+q.queue_pending+" · işlenen "+q.queue_processing);
+    (d.peers||[]).forEach(function(p){
+      var w=by[p.dc], cls=p.ok?((w>0)?"ok":"warn"):"down";
+      var lbl=p.ok?((w!=null?w:0)+" worker"):"ERİŞİLEMİYOR";
+      html+=chip(p.dc,cls,lbl,p.ok?("API ayakta · "+p.latency_ms+" ms · "+p.url):("API yanıt vermiyor · "+p.url+" · "+(p.error||"")));
+    });
+    if(q.queue_pending!=null&&q.queue_pending>=0) html+='<span class="q">kuyruk '+q.queue_pending+'</span>';
+    el.innerHTML=html; el.title="Son kontrol: "+new Date().toLocaleTimeString();
+  }
+  function tick(){fetch("/cluster",{cache:"no-store"}).then(function(r){return r.json();}).then(draw)
+    .catch(function(){el.innerHTML='<span class="dc down"><span class="dot"></span>küme durumu alınamadı</span>';});}
+  tick(); setInterval(tick,15000);
+})();
+</script>
 <div id="wendococr-sign">&copy; <a href="https://www.linkedin.com/in/uguryldz/" target="_blank" rel="noopener">uğur yıldız</a></div>
 """
 
