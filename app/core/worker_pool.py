@@ -48,12 +48,16 @@ from app.config import (
 logger = logging.getLogger("wendococr.pool")
 
 WORKER_HEARTBEAT_KEY = f"{REDIS_KEY_PREFIX}:workers"
-WORKER_HEARTBEAT_TTL = 30  # saniye — 30s heartbeat gelmezse ölü sayılır
+WORKER_HEARTBEAT_TTL = 60  # saniye — heartbeat 10s'de bir; 60s gelmezse ölü (ağ dalgalanmasına pay)
 JOB_LOST_CHECK_SEC = 6     # sonuç beklerken işin hâlâ kuyrukta/işlemede olduğu bu aralıkla kontrol edilir
 JOB_RESUBMIT_MAX = 2       # kaybolan iş en fazla bu kadar yeniden gönderilir
 # Payload'a gömülü dosyanın args içindeki yer tutucusu (worker kendi yerel yoluyla değiştirir)
 _FILE_PLACEHOLDER = "__WENDOCOCR_FILE__"
 PROCESSING_META_KEY = f"{REDIS_QUEUE_NAME}:processing_meta"  # job_id -> {worker_id, started_at}
+# Zehirli iş sınırı: bir iş worker'ı bu kadar kez düşürürse (OOM vb.) bir daha denenmez,
+# istemciye hata döner. Sayaç Redis'te: worker süreci ölse de kalır.
+JOB_MAX_ATTEMPTS = int(os.environ.get("JOB_MAX_ATTEMPTS", "2"))
+_ATTEMPTS_PREFIX = f"{REDIS_KEY_PREFIX}:attempts:"  # job_id -> deneme sayısı | b"done"
 
 # GUVENLIK (K1): Worker, kuyruktan gelen iste GÖRE rastgele fonksiyon CAGIRMAZ.
 # Sadece bu allowlist'teki güvenli fonksiyonlar çalıştırılabilir. Job, fonksiyonu
@@ -96,25 +100,28 @@ def _redis_client():
     LOADING döner -> BusyLoadingError da yeniden denenir. health_check_interval: boşta
     kalmış bağlantıyı kullanmadan önce PING ile yoklar, ölüyse sessizce yeniler.
 
+    Ağ kesintisinde retry komutu ikinci kez çalıştırabilir (yanıt kaybolduysa): kuyrukta
+    çift iş -> worker tarafında _claim_job eler; işlemede yetim -> reaper toplar.
+
     TimeoutError BİLEREK retry DIŞINDA: bu kodda blocking pop'un (brpoplpush/blpop)
     normal "iş yok" sinyali. Varsayılan Retry onu da deniyor; buraya girerse worker
     döngüsünün heartbeat/reaper zamanlaması bozulur. Kendi Retry'ımız onu kapsamaz.
     """
     import redis
     from redis.backoff import ExponentialBackoff
-    from redis.exceptions import BusyLoadingError
+    from redis.exceptions import BusyLoadingError, ReadOnlyError
     from redis.exceptions import ConnectionError as RedisConnectionError
     from redis.retry import Retry
-    retry = Retry(
-        ExponentialBackoff(cap=2.0, base=0.1),
-        retries=5,
-        supported_errors=(RedisConnectionError, BusyLoadingError),
-    )
+    # ReadOnlyError: failover'da proxy/VIP bağlantısı henüz replica'ya bakıyor ("You can't
+    # write against a read only replica"). Retry bağlantıyı kapatıp yeniden açar -> proxy
+    # yeni master'a yönlendirir. 10 deneme, üst sınır 2s -> ~15s failover penceresi.
+    errors = (RedisConnectionError, BusyLoadingError, ReadOnlyError)
+    retry = Retry(ExponentialBackoff(cap=2.0, base=0.1), retries=10, supported_errors=errors)
     return redis.Redis.from_url(
         REDIS_URL,
         decode_responses=False,
         retry=retry,
-        retry_on_error=[RedisConnectionError, BusyLoadingError],
+        retry_on_error=list(errors),
         health_check_interval=30,
         # CLIENT SETINFO gönderme: ACL'de gereksiz yetki/red logu üretir, işlevi yok.
         lib_name=None,
@@ -386,6 +393,33 @@ class RedisWorkerPool:
 # python -m app.core.worker_pool
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+_seen_orphans: set[str] = set()  # reaper: önceki taramada meta'sız görülen işler
+
+
+def _claim_job(r, job_id: str, worker_id: str) -> str | None:
+    """İşi sahiplen. None -> işle; str -> atla (sebep). Ağ retry'ı aynı işi kuyruğa iki
+    kez koyabilir veya reaper canlı worker'ın işini geri almış olabilir: çift işlemeyi ve
+    zehirli işin sonsuz denenmesini burada keser."""
+    akey = _ATTEMPTS_PREFIX + job_id
+    if r.get(akey) == b"done":
+        return "zaten tamamlandi"
+    meta = json.dumps({"worker_id": worker_id, "started_at": time.time()})
+    if not r.hsetnx(PROCESSING_META_KEY, job_id, meta):
+        try:
+            owner = json.loads(r.hget(PROCESSING_META_KEY, job_id) or b"{}").get("worker_id")
+        except Exception:
+            owner = None
+        ts = r.hget(WORKER_HEARTBEAT_KEY, owner) if owner else None
+        if owner != worker_id and ts and time.time() - float(ts) < WORKER_HEARTBEAT_TTL:
+            return f"baska worker isliyor ({owner})"
+        r.hset(PROCESSING_META_KEY, job_id, meta)  # sahibi ölü -> devral
+    n = r.incr(akey)
+    r.expire(akey, max(JOB_HARD_MAX_SEC, OCR_QUEUE_TIMEOUT) + 600)
+    if n > JOB_MAX_ATTEMPTS:
+        return f"deneme siniri ({n - 1} deneme worker'i dusurdu)"
+    return None
+
+
 def _reap_stale_jobs(r, processing_key: str) -> int:
     """
     ÇÖKME KURTARMA: ölü worker'ın (heartbeat kesik) veya patolojik uzun (JOB_HARD_MAX_SEC)
@@ -395,8 +429,6 @@ def _reap_stale_jobs(r, processing_key: str) -> int:
     """
     try:
         meta = r.hgetall(PROCESSING_META_KEY)
-        if not meta:
-            return 0
         beats = r.hgetall(WORKER_HEARTBEAT_KEY)
         now = time.time()
         alive = {k.decode() if isinstance(k, bytes) else k
@@ -412,17 +444,37 @@ def _reap_stale_jobs(r, processing_key: str) -> int:
                 stale[jid] = "worker-olu"
             elif now - float(m.get("started_at", now)) > JOB_HARD_MAX_SEC:
                 stale[jid] = "hard-max"
+        items = r.lrange(processing_key, 0, -1)
+        # YETİM: processing'de olup meta'sı olmayan iş (blmove yanıtı ağda kayboldu ve retry
+        # başka iş çekti; ya da worker blmove ile hset arasında öldü). İlk görüşte değil,
+        # bir sonraki taramada hâlâ meta'sızsa toplanır (worker'ın hset'ine zaman tanı).
+        meta_ids = {k.decode() if isinstance(k, bytes) else k for k in meta}
+        orphans_now = set()
+        for raw in items:
+            try:
+                jid = json.loads(raw).get("job_id")
+            except Exception:
+                continue
+            if jid and jid not in meta_ids:
+                orphans_now.add(jid)
+                if jid in _seen_orphans:
+                    stale[jid] = "yetim"
+        _seen_orphans.clear()
+        _seen_orphans.update(orphans_now)
         if not stale:
             return 0
         requeued = 0
-        for raw in r.lrange(processing_key, 0, -1):
+        done: set[str] = set()
+        for raw in items:
             try:
                 jid = json.loads(raw).get("job_id")
             except Exception:
                 continue
             if jid in stale:
-                if r.lrem(processing_key, 1, raw) == 1:
+                # Aynı işin kopyaları (ağ retry'ı ile çift push) -> yalnız BİRİ geri döner.
+                if r.lrem(processing_key, 1, raw) == 1 and jid not in done:
                     r.lpush(REDIS_QUEUE_NAME, raw)
+                    done.add(jid)
                     requeued += 1
                     logger.warning("REAPER: is geri kuyruga alindi %s (%s)", jid[:8], stale[jid])
                 r.hdel(PROCESSING_META_KEY, jid)
@@ -505,8 +557,21 @@ def run_worker():
             job = json.loads(raw)
             job_id = job["job_id"]
             result_key = f"{REDIS_KEY_PREFIX}:result:{job_id}"
-            # Sahiplik kaydı: reaper hangi worker'ın işi olduğunu buradan bilir.
-            r.hset(PROCESSING_META_KEY, job_id, json.dumps({"worker_id": worker_id, "started_at": time.time()}))
+            # Sahiplik kaydı (reaper buradan bilir) + çift iş / deneme sınırı kontrolü.
+            skip = _claim_job(r, job_id, worker_id)
+            if skip:
+                r.lrem(processing_key, 1, raw)
+                if skip.startswith("deneme"):
+                    r.hdel(PROCESSING_META_KEY, job_id)
+                    r.set(_ATTEMPTS_PREFIX + job_id, b"done", ex=REDIS_RESULT_TTL)
+                    logger.error("ZEHIRLI IS atlandi: %s | %s", job_id[:8], skip)
+                    r.lpush(result_key, json.dumps({"data": None, "error":
+                        f"Belge işlenemedi: işlerken worker {JOB_MAX_ATTEMPTS} kez çöktü "
+                        "(muhtemelen bellek yetersiz — worker bellek limitini artırın veya belgeyi bölün)."}).encode("utf-8"))
+                    r.expire(result_key, REDIS_RESULT_TTL)
+                else:
+                    logger.warning("Cift is atlandi: %s | %s", job_id[:8], skip)
+                continue
 
             logger.info("Is alindi: %s | %s", job_id[:8], job.get("fn_key", "?"))
             start = time.time()
@@ -537,6 +602,7 @@ def run_worker():
                 fn = _resolve_allowed(job["fn_key"])  # allowlist disi -> ValueError
                 result_data = fn(*args, **job.get("kwargs", {}))
 
+                r.set(_ATTEMPTS_PREFIX + job_id, b"done", ex=REDIS_RESULT_TTL)
                 r.lpush(result_key, json.dumps({"data": result_data, "error": None}).encode("utf-8"))
                 r.expire(result_key, REDIS_RESULT_TTL)
 
@@ -546,6 +612,7 @@ def run_worker():
 
             except Exception as e:
                 logger.exception("Basarisiz: %s | %s", job_id[:8], e)
+                r.set(_ATTEMPTS_PREFIX + job_id, b"done", ex=REDIS_RESULT_TTL)
                 r.lpush(result_key, json.dumps({"data": None, "error": str(e)}).encode("utf-8"))
                 r.expire(result_key, REDIS_RESULT_TTL)
 
